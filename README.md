@@ -6,7 +6,7 @@ Python-based Bluetooth integration for SeeLevel 709-BT sensors on Victron Venus 
 
 ## Overview
 
-This Python implementation provides an alternative to the C daemon for users who cannot cross-compile for Venus OS. It features:
+This Python implementation provides an alternative to the C daemon while users are waiting for Victron to accept the PR. It features:
 
 - **Interactive Discovery Tool** - Scan for and configure sensors with guided prompts
 - **Multi-Process Architecture** - Separate process for each sensor for stability
