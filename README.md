@@ -2,6 +2,8 @@
 
 Python-based Bluetooth integration for SeeLevel 709-BT sensors on Victron Venus OS. Interactive discovery tool and DBus service for monitoring RV tank levels, temperatures, and battery voltage on Cerbo GX devices.
 
+> **Note**: This Python implementation was created as a workaround for users who cannot build the C version. If [Pull Request #11](https://github.com/victronenergy/dbus-ble-sensors/pull/11) (addressing [Issue #1508](https://github.com/victronenergy/venus/issues/1508)) is accepted into the official Victron firmware, this package will no longer be needed as native SeeLevel support will be included in Venus OS.
+
 ## Overview
 
 This Python implementation provides an alternative to the C daemon for users who cannot cross-compile for Venus OS. It features:
