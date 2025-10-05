@@ -160,6 +160,12 @@ This copies the pre-configured service directory structure including:
 - `/service/dbus-seelevel/run` - Main service script
 - `/service/dbus-seelevel/log/run` - Log management script
 
+Make the service scripts executable:
+
+```bash
+ssh root@<cerbo-ip-address> 'chmod +x /service/dbus-seelevel/run /service/dbus-seelevel/log/run'
+```
+
 The service will start automatically within a few seconds. Supervise monitors the `/service/` directory and automatically starts any services it finds.
 
 ### 7. Verify the Service is Running
