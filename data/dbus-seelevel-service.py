@@ -16,8 +16,8 @@
 """
 SeeLevel 709-BT Service
 
-Runs continuously, only processing configured devices.
-Reads configuration from /data/seelevel/*.json
+Main process: monitors BLE, parses data, tracks changes, spawns minimal sensor processes.
+Updates sent to sensors only when value changes OR 5+ minutes elapsed.
 """
 
 import re
@@ -35,14 +35,17 @@ from gi.repository import GLib
 
 MFG_ID_SEELEVEL = 305
 CONFIG_DIR = "/data/seelevel"
+HEARTBEAT_INTERVAL = 300  # 5 minutes
 
 
 class SeeLevelService:
-    """Main service that processes only configured devices"""
+    """Main service that spawns sensor processes"""
     
     def __init__(self):
         self.sensor_processes: Dict[str, subprocess.Popen] = {}
         self.configured_sensors: Dict[str, dict] = {}
+        self.last_update: Dict[str, float] = {}  # sensor_key -> timestamp of last update sent
+        self.last_value: Dict[str, int] = {}  # sensor_key -> last value seen
         self.current_mac = None
         self.current_data = None
         self.btmon_proc = None
@@ -119,10 +122,8 @@ class SeeLevelService:
         
         self.sensor_processes[sensor_key] = proc
 
-    def write_sensor_data(self, mac: str, sensor_num: int, data_str: str, volume: int, total: int):
-        """Write sensor data to process stdin"""
-        sensor_key = f"{mac}_{sensor_num}"
-        
+    def send_update(self, sensor_key: str, sensor_value: int):
+        """Send update to sensor process (just the value)"""
         if sensor_key not in self.sensor_processes:
             return
         
@@ -130,14 +131,8 @@ class SeeLevelService:
         if proc.poll() is not None:
             return  # Process died
         
-        data = {
-            'data': data_str,
-            'volume': volume,
-            'total': total
-        }
-        
         try:
-            proc.stdin.write(json.dumps(data) + '\n')
+            proc.stdin.write(f"{sensor_value}\n")
             proc.stdin.flush()
         except Exception as e:
             logging.error(f"Failed to write to {sensor_key}: {e}")
@@ -146,7 +141,8 @@ class SeeLevelService:
         """Parse btmon output"""
         line = line.strip()
         
-        mac_match = re.search(r'Address: ([0-9A-F:]{17})', line)
+        # Match MAC address - support both "Address:" and "LE Address:"
+        mac_match = re.search(r'(?:LE )?Address: ([0-9A-F:]{17})', line)
         if mac_match:
             self.current_mac = mac_match.group(1)
             return
@@ -164,7 +160,7 @@ class SeeLevelService:
                 self.current_data = None
 
     def process_seelevel_data(self, mac: str, hex_data: str):
-        """Process SeeLevel data for configured sensors only"""
+        """Process SeeLevel data and decide if update needed"""
         try:
             data = bytes.fromhex(hex_data)
             if len(data) < 14:
@@ -177,34 +173,58 @@ class SeeLevelService:
             if sensor_key not in self.configured_sensors:
                 return
             
-            data_str = data[4:7].decode('ascii', errors='ignore')
+            data_str = data[4:7].decode('ascii', errors='ignore').strip()
             
             # Skip OPN (disconnected)
-            if data_str.strip() == "OPN":
+            if data_str == "OPN":
                 return
             
-            volume_str = data[7:10].decode('ascii', errors='ignore')
-            total_str = data[10:13].decode('ascii', errors='ignore')
-            
-            try:
-                volume = int(volume_str)
-            except:
-                volume = 0
-            try:
-                total = int(total_str)
-            except:
-                total = 0
-            
-            # Start process if needed
             config = self.configured_sensors[sensor_key]
-            if sensor_key not in self.sensor_processes:
-                self.start_sensor_process(mac, sensor_num, config)
             
-            # Write data
-            self.write_sensor_data(mac, sensor_num, data_str, volume, total)
+            # Parse sensor value
+            try:
+                sensor_value = int(data_str)
+            except ValueError:
+                if data_str == "ERR":
+                    logging.info(f"{config['custom_name']}: Error")
+                return
             
-        except:
-            pass
+            # Check if we should send update
+            now = time.time()
+            value_changed = sensor_key not in self.last_value or self.last_value[sensor_key] != sensor_value
+            time_for_heartbeat = (sensor_key not in self.last_update) or (now - self.last_update[sensor_key] >= HEARTBEAT_INTERVAL)
+            
+            if value_changed or time_for_heartbeat:
+                # Start process if needed
+                if sensor_key not in self.sensor_processes:
+                    self.start_sensor_process(mac, sensor_num, config)
+                
+                # Send update
+                self.send_update(sensor_key, sensor_value)
+                
+                # Log only on value changes
+                if value_changed:
+                    if sensor_num == 13:  # Battery
+                        voltage = sensor_value / 10.0
+                        logging.info(f"{config['custom_name']}: {voltage}V (changed)")
+                    elif sensor_num in [7, 8, 9, 10]:  # Temperature
+                        temp_c = (sensor_value - 32.0) * 5.0 / 9.0
+                        logging.info(f"{config['custom_name']}: {temp_c:.1f}°C (changed)")
+                    else:  # Tank
+                        tank_capacity_gallons = config.get('tank_capacity_gallons', 0)
+                        if tank_capacity_gallons > 0:
+                            capacity_m3 = round(tank_capacity_gallons * 0.00378541, 3)
+                            remaining_m3 = round(capacity_m3 * sensor_value / 100.0, 3)
+                            logging.info(f"{config['custom_name']}: {sensor_value}% ({remaining_m3}/{capacity_m3} m³) (changed)")
+                        else:
+                            logging.info(f"{config['custom_name']}: {sensor_value}% (changed)")
+                
+                # Track last update time and value
+                self.last_update[sensor_key] = now
+                self.last_value[sensor_key] = sensor_value
+            
+        except Exception as e:
+            logging.error(f"Process error: {e}")
 
     def process_btmon_output(self, source, condition):
         """GLib callback"""
@@ -224,16 +244,41 @@ class SeeLevelService:
         """Cleanup on exit"""
         logging.info("Shutting down...")
         
-        if self.btmon_proc:
-            self.btmon_proc.terminate()
-            self.btmon_proc.wait()
+        # Send graceful shutdown to all sensor processes
+        for sensor_key, proc in self.sensor_processes.items():
+            try:
+                if proc.poll() is None:  # Still running
+                    proc.stdin.write("SHUTDOWN\n")
+                    proc.stdin.flush()
+            except:
+                pass
         
+        # Wait briefly for graceful shutdown
+        import time
+        time.sleep(0.5)
+        
+        # Force terminate any remaining processes
         for proc in self.sensor_processes.values():
             try:
-                proc.terminate()
-                proc.wait(timeout=2)
+                if proc.poll() is None:
+                    proc.terminate()
+                    proc.wait(timeout=1)
             except:
-                proc.kill()
+                try:
+                    proc.kill()
+                except:
+                    pass
+        
+        # Stop btmon
+        if self.btmon_proc:
+            try:
+                self.btmon_proc.terminate()
+                self.btmon_proc.wait(timeout=1)
+            except:
+                try:
+                    self.btmon_proc.kill()
+                except:
+                    pass
         
         sys.exit(0)
 
@@ -278,7 +323,7 @@ def main():
         format='%(asctime)s - %(message)s'
     )
     
-    logging.info("SeeLevel 709-BT Service v1.0")
+    logging.info("SeeLevel 709-BT Service v1.0.1")
     service = SeeLevelService()
     sys.exit(service.run())
 

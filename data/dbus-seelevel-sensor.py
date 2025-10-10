@@ -14,13 +14,12 @@
 # limitations under the License.
 
 """
-SeeLevel Sensor Process - Reads from stdin pipe
+SeeLevel Sensor Process - Minimal DBus service that accepts update commands via stdin
 """
 
 import sys
-import time
-import logging
 import json
+import os
 
 sys.path.insert(1, '/opt/victronenergy/dbus-systemcalc-py/ext/velib_python')
 
@@ -45,7 +44,7 @@ FLUID_TYPE_LPG = 8
 
 SENSOR_TYPES = {
     0: ("Fresh Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_FRESH_WATER),
-    1: ("Waste Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_BLACK_WATER),  # Display as "Waste Water" but use BLACK_WATER type for Victron
+    1: ("Waste Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_BLACK_WATER),
     2: ("Gray Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
     3: ("LPG", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_LPG),
     4: ("LPG 2", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_LPG),
@@ -60,8 +59,9 @@ SENSOR_TYPES = {
     13: ("Battery", "battery", VE_PROD_ID_BATTERY_MONITOR, None),
 }
 
+
 class SeeLevelSensor:
-    """Individual sensor process that reads from stdin"""
+    """Minimal sensor process - just maintains DBus and applies updates"""
     
     def __init__(self, mac: str, sensor_num: int, custom_name: str = None, 
                  tank_capacity_gallons: float = 0):
@@ -71,29 +71,24 @@ class SeeLevelSensor:
         self.tank_capacity_gallons = tank_capacity_gallons
         
         if sensor_num not in SENSOR_TYPES:
-            logging.error(f"Unknown sensor type: {sensor_num}")
             sys.exit(1)
         
         name, role, product_id, fluid_type = SENSOR_TYPES[sensor_num]
         
         mac_clean = mac.replace(':', '').lower()
         device_id = f"seelevel_{mac_clean}_{sensor_num:02x}"
-        
-        # Use custom_name from __init__ parameter if provided
-        device_name = self.custom_name if hasattr(self, 'custom_name') and self.custom_name else name
-        
+        device_name = self.custom_name if self.custom_name else name
         service_name = f"com.victronenergy.{role}.{device_id}"
         
         self.service = VeDbusService(service_name, register=False)
         
-        # Create stable device instance based on MAC and sensor number
-        # Use last 2 bytes of MAC + sensor number to create unique instance
+        # Stable device instance
         mac_parts = mac.split(':')
         instance_base = int(mac_parts[-2] + mac_parts[-1], 16)
         device_instance = 100 + (instance_base % 100) + sensor_num
         
         self.service.add_path('/Mgmt/ProcessName', 'dbus-seelevel')
-        self.service.add_path('/Mgmt/ProcessVersion', '1.0.0')
+        self.service.add_path('/Mgmt/ProcessVersion', '1.0.1')
         self.service.add_path('/Mgmt/Connection', 'Bluetooth LE')
         self.service.add_path('/DeviceInstance', device_instance)
         self.service.add_path('/ProductId', product_id)
@@ -102,19 +97,18 @@ class SeeLevelSensor:
         self.service.add_path('/Connected', 1)
         self.service.add_path('/Status', 0)
         
-        if sensor_num == 13:
+        if sensor_num == 13:  # Battery
             self.service.add_path('/Dc/0/Voltage', 0)
-        elif sensor_num in [7, 8, 9, 10]:
+        elif sensor_num in [7, 8, 9, 10]:  # Temperature
             self.service.add_path('/Temperature', 0)
-        else:
+        else:  # Tank
             self.service.add_path('/Level', 0)
-            # Only add capacity/remaining if we have a configured capacity
             if self.tank_capacity_gallons > 0:
+                capacity_m3 = round(self.tank_capacity_gallons * 0.00378541, 3)
                 self.service.add_path('/Remaining', 0)
-                self.service.add_path('/Capacity', 0)
+                self.service.add_path('/Capacity', capacity_m3)
             self.service.add_path('/FluidType', fluid_type or 0)
         
-        # Don't register yet - wait for first data
         self.registered = False
         self.service_name = service_name
 
@@ -128,73 +122,63 @@ class SeeLevelSensor:
         return names.get(product_id, "Unknown")
 
     def read_stdin(self, source, condition):
-        """Read data from stdin (GLib callback)"""
+        """Read update commands from stdin"""
         if condition == GLib.IO_HUP:
-            logging.error("Stdin closed, exiting")
-            sys.exit(1)
+            # Parent closed stdin - terminate
+            sys.exit(0)
         
         try:
             line = sys.stdin.readline()
             if not line:
-                return True
+                # EOF - parent died
+                sys.exit(0)
             
-            data = json.loads(line.strip())
-            self.update(data['data'], data['volume'], data['total'])
+            line = line.strip()
             
-        except Exception as e:
-            logging.error(f"Error reading stdin: {e}")
+            # Check for shutdown command
+            if line == "SHUTDOWN":
+                sys.exit(0)
+            
+            # Parse sensor value as integer
+            sensor_value = int(line)
+            self.update(sensor_value)
+            
+        except ValueError:
+            # Invalid data, ignore
+            pass
+        except Exception:
+            # Any other error, terminate
+            sys.exit(1)
         
         return True
 
-    def update(self, data_str: str, volume: int, total: int):
-        """Update sensor value"""
-        try:
-            sensor_data = int(data_str.strip())
-        except ValueError:
-            if data_str.strip() == "ERR":
-                self.service['/Status'] = 4
-                logging.info(f"Error status received")
-            return
-        
-        if self.sensor_num == 13:
-            voltage = sensor_data / 10.0
+    def update(self, sensor_value: int):
+        """Update DBus paths with new value"""
+        if self.sensor_num == 13:  # Battery
+            voltage = sensor_value / 10.0
             self.service['/Dc/0/Voltage'] = voltage
-            logging.info(f"Updated voltage: {voltage}V")
-        elif self.sensor_num in [7, 8, 9, 10]:
-            temp_c = (sensor_data - 32.0) * 5.0 / 9.0
+        elif self.sensor_num in [7, 8, 9, 10]:  # Temperature
+            temp_c = (sensor_value - 32.0) * 5.0 / 9.0
             self.service['/Temperature'] = round(temp_c, 1)
-            logging.info(f"Updated temperature: {temp_c:.1f}°C")
-        else:
-            # Just pass through the sensor value directly - let Victron handle it based on fluid type
-            level = sensor_data
-            
+        else:  # Tank
+            level = sensor_value
             self.service['/Level'] = level
-            logging.info(f"Updated level: {level}%")
             
-            # Calculate capacity and remaining if configured
             if self.tank_capacity_gallons > 0:
                 capacity_m3 = round(self.tank_capacity_gallons * 0.00378541, 3)
-                self.service['/Capacity'] = capacity_m3
-                
-                # /Remaining should always be the liquid volume (not space)
-                # level is already the filled percentage after inversion
                 remaining_m3 = round(capacity_m3 * level / 100.0, 3)
+                self.service['/Capacity'] = capacity_m3
                 self.service['/Remaining'] = remaining_m3
-                logging.info(f"  Capacity: {capacity_m3} m³ ({self.tank_capacity_gallons} gal)")
-                logging.info(f"  Remaining: {remaining_m3} m³ ({level}% filled)")
         
         self.service['/Status'] = 0
         
         # Register on first update
         if not self.registered:
             self.service.register()
-            logging.info(f"Registered: {self.service_name}")
             self.registered = True
 
     def run(self):
         """Run the sensor process"""
-        # Watch stdin for data using file descriptor
-        import os
         GLib.io_add_watch(
             os.dup(sys.stdin.fileno()),
             GLib.IO_IN | GLib.IO_HUP,
@@ -211,18 +195,12 @@ class SeeLevelSensor:
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: dbus-seelevel-sensor.py <mac> <sensor_num> [custom_name] [tank_capacity_gallons]")
         sys.exit(1)
     
     mac = sys.argv[1]
     sensor_num = int(sys.argv[2])
     custom_name = sys.argv[3] if len(sys.argv) > 3 else None
     tank_capacity_gallons = float(sys.argv[4]) if len(sys.argv) > 4 else 0
-    
-    logging.basicConfig(
-        level=logging.INFO,
-        format=f'[{mac}_{sensor_num}] %(message)s'
-    )
     
     sensor = SeeLevelSensor(mac, sensor_num, custom_name, tank_capacity_gallons)
     sensor.run()
