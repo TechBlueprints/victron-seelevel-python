@@ -47,8 +47,9 @@ victron-seelevel-python/
 1. [Enable SSH](#enable-ssh-access) on your Cerbo GX
 2. Copy scripts: `scp data/*.py root@<cerbo-ip>:/data/`
 3. Run discovery: `ssh root@<cerbo-ip> 'python3 /data/dbus-seelevel-discover.py'`
-4. Install service: `scp -r service root@<cerbo-ip>:/service/dbus-seelevel`
-5. Verify running: `ssh root@<cerbo-ip> 'svstat /service/dbus-seelevel'`
+4. Install service: `scp -r service root@<cerbo-ip>:/opt/victronenergy/service/dbus-seelevel`
+5. Create symlink: `ssh root@<cerbo-ip> 'ln -sf /opt/victronenergy/service/dbus-seelevel /service/dbus-seelevel'`
+6. Verify running: `ssh root@<cerbo-ip> 'svstat /service/dbus-seelevel'`
 
 See the [Installation Guide](#installation-guide) below for detailed steps.
 
@@ -150,23 +151,23 @@ Check your Cerbo UI - you should see your sensors appearing with live data. Pres
 
 ### 6. Install as a Permanent Service
 
-Copy the service files from your local machine to the Cerbo:
+Copy the service files to the persistent location and create a symlink:
 
 ```bash
-scp -r service root@<cerbo-ip-address>:/service/dbus-seelevel
+scp -r service root@<cerbo-ip-address>:/opt/victronenergy/service/dbus-seelevel
 ```
 
 This copies the pre-configured service directory structure including:
-- `/service/dbus-seelevel/run` - Main service script
-- `/service/dbus-seelevel/log/run` - Log management script
+- `/opt/victronenergy/service/dbus-seelevel/run` - Main service script
+- `/opt/victronenergy/service/dbus-seelevel/log/run` - Log management script
 
-Make the service scripts executable:
+Make the service scripts executable and create the symlink:
 
 ```bash
-ssh root@<cerbo-ip-address> 'chmod +x /service/dbus-seelevel/run /service/dbus-seelevel/log/run'
+ssh root@<cerbo-ip-address> 'chmod +x /opt/victronenergy/service/dbus-seelevel/run /opt/victronenergy/service/dbus-seelevel/log/run && ln -sf /opt/victronenergy/service/dbus-seelevel /service/dbus-seelevel'
 ```
 
-The service will start automatically within a few seconds. Supervise monitors the `/service/` directory and automatically starts any services it finds.
+The service will start automatically within a few seconds. The files in `/opt/victronenergy/service/` persist across reboots, and the symlink to `/service/` is automatically recreated on each boot.
 
 ### 7. Verify the Service is Running
 
@@ -193,7 +194,8 @@ Press Ctrl+C to stop watching the logs.
 
 - **Scripts**: `/data/dbus-seelevel-*.py`
 - **Configuration**: `/data/seelevel/*.json`
-- **Service**: `/service/dbus-seelevel/`
+- **Service**: `/opt/victronenergy/service/dbus-seelevel/` (persists across reboots)
+- **Service Symlink**: `/service/dbus-seelevel/` (automatically recreated on boot)
 - **Logs**: `/var/log/dbus-seelevel/`
 
 ## Configuration Files
