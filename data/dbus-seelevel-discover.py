@@ -31,7 +31,7 @@ from typing import Dict, Set
 MFG_ID_SEELEVEL = 305
 
 SENSOR_TYPES = {
-    0: "Fresh Water", 1: "Waste Water", 2: "Gray Water", 3: "LPG", 4: "LPG 2",
+    0: "Fresh Water", 1: "Toilet Water", 2: "Wash Water", 3: "LPG", 4: "LPG 2",
     5: "Galley Water", 6: "Galley Water 2", 7: "Temp", 8: "Temp 2",
     9: "Temp 3", 10: "Temp 4", 11: "Chemical", 12: "Chemical 2", 13: "Battery"
 }
