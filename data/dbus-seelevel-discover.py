@@ -28,13 +28,34 @@ import json
 import os
 from typing import Dict, Set
 
-MFG_ID_SEELEVEL = 305
+MFG_ID_CYPRESS = 305 # 709-BTP3
+MFG_ID_SEELEVEL = 3264 # 709-BTP7
 
-SENSOR_TYPES = {
-    0: "Fresh Water", 1: "Toilet Water", 2: "Wash Water", 3: "LPG", 4: "LPG 2",
-    5: "Galley Water", 6: "Galley Water 2", 7: "Temp", 8: "Temp 2",
-    9: "Temp 3", 10: "Temp 4", 11: "Chemical", 12: "Chemical 2", 13: "Battery"
-}
+SENSOR_TYPES = [
+                {
+                 0: "Fresh Water", 1: "Toilet Water", 2: "Wash Water", 3: "LPG", 4: "LPG 2",
+                 5: "Galley Water", 6: "Galley Water 2", 7: "Temp", 8: "Temp 2",
+                 9: "Temp 3", 10: "Temp 4", 11: "Chemical", 12: "Chemical 2", 13: "Battery"
+                },
+                {
+                 0: "Fresh Water", 1: "Wash Water", 2: "Toilet Water",
+                 3: "Fresh Water 2", 4: "Wash Water 2", 5: "Toilet Water 2",
+                 6: "Wash Water 3",
+                 7: "LPG", 8: "Battery"
+                }
+               ]
+
+STATUS_SEELEVEL = {
+                   101: "Short Circuit",
+                   102: "Open",
+                   103: "Bitcount error",
+                   104: "Configured as non stacked but received stacked data",
+                   105: "Stacked, missing bottom sender data",
+                   106: "Stacked, missing top sender data",
+                   108: "Bad Checksum",
+                   110: "Tank disabled",
+                   111: "Tank init"
+                  }
 
 CONFIG_DIR = "/data/seelevel"
 
@@ -48,6 +69,7 @@ class SeeLevelDiscovery:
         self.current_data = None
         self.last_discovery_time = None
         self.should_continue = True
+        self.sensor_type_id = 0
         
         # Create config directory
         os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -61,8 +83,10 @@ class SeeLevelDiscovery:
             self.current_mac = mac_match.group(1)
             return
         
-        company_match = re.search(r'Company: Cypress Semiconductor \((\d+)\)', line)
-        if company_match and int(company_match.group(1)) == MFG_ID_SEELEVEL:
+        company_match = re.search(r'Company: .* \((\d+)\)', line)
+        if company_match and (int(company_match.group(1)) == MFG_ID_CYPRESS or int(company_match.group(1)) == MFG_ID_SEELEVEL):
+            if (int(company_match.group(1)) == MFG_ID_SEELEVEL):
+                self.sensor_type_id = 1
             self.current_data = "pending"
             return
         
@@ -70,33 +94,35 @@ class SeeLevelDiscovery:
             data_match = re.search(r'Data: ([0-9a-f]+)', line)
             if data_match:
                 hex_data = data_match.group(1)
-                self.process_seelevel_data(self.current_mac, hex_data)
+                self.process_seelevel_data(self.current_mac, hex_data, self.sensor_type_id)
                 self.current_data = None
 
-    def process_seelevel_data(self, mac: str, hex_data: str):
+    def process_seelevel_data(self, mac: str, hex_data: str, sensor_type_id: int):
         """Process SeeLevel data and create config"""
         try:
             data = bytes.fromhex(hex_data)
             if len(data) < 14:
                 return
             
-            sensor_num = data[3]
-            data_str = data[4:7].decode('ascii', errors='ignore')
+            overall_sensor_nr = 1
+            if sensor_type_id==0:
+                overall_sensors
+                sensor_num = data[3]
+                data_str = data[4:7].decode('ascii', errors='ignore')
             
-            # Check if sensor is disconnected
-            is_disconnected = (data_str.strip() == "OPN")
+                # Check if sensor is disconnected
+                is_disconnected = (data_str.strip() == "OPN")
             
-            if sensor_num not in SENSOR_TYPES:
-                return
+                if sensor_num not in SENSOR_TYPES[sensor_type_id]:
+                    return
+               
+                print()  # New line after scanning dots
+                self.create_config(mac, sensor_type_id, sensor_num, is_disconnected)
+            else:
+                print()  # New line after scanning dots
+                for sensor_num in range(9):
+                    self.create_config(mac, sensor_type_id, sensor_num, data[sensor_num+3] == 110 and sensor_num < 8)
             
-            sensor_key = f"{mac}_{sensor_num}"
-            
-            if sensor_key in self.discovered:
-                return  # Already found
-            
-            self.discovered.add(sensor_key)
-            print()  # New line after scanning dots
-            self.create_config(mac, sensor_num, is_disconnected)
             # Reset timer AFTER user finishes configuring (in create_config)
             
             # If user chose not to continue, stop scanning
@@ -106,9 +132,14 @@ class SeeLevelDiscovery:
         except:
             pass
 
-    def create_config(self, mac: str, sensor_num: int, is_disconnected: bool = False):
+    def create_config(self, mac: str, sensor_type_id: int, sensor_num: int, is_disconnected: bool = False):
+        sensor_key = f"{mac}_{sensor_num}"
+        if sensor_key in self.discovered:
+            return  # Already found                
+        self.discovered.add(sensor_key)
+        
         """Create configuration file for a sensor"""
-        sensor_name = SENSOR_TYPES[sensor_num]
+        sensor_name = SENSOR_TYPES[sensor_type_id][sensor_num]
         
         # Use friendly name for filename, with spaces replaced by dashes
         friendly_filename = sensor_name.replace(' ', '-').lower()
@@ -158,7 +189,7 @@ class SeeLevelDiscovery:
         print()
         
         # Default: 'd' for disconnected sensors and battery, 'y' for everything else
-        if is_disconnected or sensor_num == 13:  # Disconnected or Battery
+        if is_disconnected or sensor_num == 13 or (sensor_type_id == 1 and sensor_num == 8):  # Disconnected or Battery
             default_choice = 'd'
         else:
             default_choice = 'y'
@@ -178,10 +209,11 @@ class SeeLevelDiscovery:
             custom_name = sensor_name
         
         # Check if this is a tank sensor (not temp or battery)
-        is_tank = sensor_num not in [7, 8, 9, 10, 13]
+        is_tank = (sensor_type_id == 0 and sensor_num not in [7, 8, 9, 10, 13]) or (sensor_type_id == 1 and sensor_num < 8)
         
         config = {
             "mac": mac,
+            "sensor_type_id": sensor_type_id,
             "sensor_num": sensor_num,
             "sensor_type": sensor_name,
             "custom_name": custom_name,

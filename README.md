@@ -310,7 +310,7 @@ For issues or questions:
 
 The Garnet 709-BT hardware supports Bluetooth Low Energy (BLE), and is configured as a Broadcaster transmitting advertisement packets. It continuously cycles through its connected sensors sending out sensor data. No BLE connection is required to read the data.
 
-### BLE Packet Format
+### BLE Packet Formats
 
 **Manufacturer ID**: 305 (0x0131) - Cypress Semiconductor
 
@@ -322,31 +322,59 @@ The Garnet 709-BT hardware supports Bluetooth Low Energy (BLE), and is configure
 - **Bytes 10-12**: Sensor Total (3 ASCII characters, gallons)
 - **Byte 13**: Sensor Alarm (ASCII digit '0'-'9')
 
+**Manufacturer ID**: 3264 (0x0CC0) - Seelevel (used in newer BTP7 device)
+
+**Payload** (14 bytes):
+- **Bytes 0-2**: Coach ID (24-bit unique hardware ID, little-endian)
+- **Byte 3-10**: Tank Level / State in the following order:
+	- Fresh1, Grey1, Black1, Fresh2, Grey2, Black2, Grey3, LPG, 1 byte per tank.
+	- 0 - 100 indicates level, values above 100 are tank exceptions:
+		- **101**: Short Circuit
+		- **102**: Open / No response
+		- **103**: Bitcount error
+		- **104**: Configured as non stacked but received stacked data
+		- **105**: Stacked, missing bottom sender data
+		- **106**: Stacked, missing top sender data
+		- **108**: Bad Checksum
+		- **110**: Tank disabled
+		- **111**: Tank init 
+
 ### Sensor Numbers
 
-| Number | Sensor Type |
-|--------|-------------|
-| 0 | Fresh Water |
-| 1 | Black Water (displayed as "Waste Water") |
-| 2 | Gray Water |
-| 3 | LPG |
-| 4 | LPG 2 |
-| 5 | Galley Water |
-| 6 | Galley Water 2 |
-| 7 | Temperature |
-| 8 | Temperature 2 |
-| 9 | Temperature 3 |
-| 10 | Temperature 4 |
-| 11 | Chemical |
-| 12 | Chemical 2 |
-| 13 | Battery (voltage × 10) |
+| Number | Sensor Type (0x0131)| Sensor Type (0x0CC0) |
+|--------|---------------------|----------------------|
+| 0 | Fresh Water | Fresh Water |
+| 1 | Black Water  | Gray Water |
+| 2 | Gray Water | Black Water |
+| 3 | LPG | Fresh Water 2|
+| 4 | LPG 2 | Gray Water 2|
+| 5 | Galley Water | Black Water 2|
+| 6 | Galley Water 2 | Gray Water 3|
+| 7 | Temperature | LPG |
+| 8 | Temperature 2 | Battery (voltage × 10)|
+| 9 | Temperature 3 | - |
+| 10 | Temperature 4 | - |
+| 11 | Chemical | - |
+| 12 | Chemical 2 | - |
+| 13 | Battery (voltage × 10) | - |
 
 ### Status Codes
 
-In the Sensor Data field (bytes 4-6):
+For the Cypress (0x0131) version, in the Sensor Data field (bytes 4-6):
 - **"OPN"**: Sensor open/disconnected (device not created)
 - **"ERR"**: Sensor error (device shown with error status)
 - **Numeric**: Actual sensor reading
+
+For the newer 0x0CC0 version, values above 100 for tank sensors are exceptions:
+- **101**: Short Circuit
+- **102**: Open / No response
+- **103**: Bitcount error
+- **104**: Configured as non stacked but received stacked data
+- **105**: Stacked, missing bottom sender data
+- **106**: Stacked, missing top sender data
+- **108**: Bad Checksum
+- **110**: Tank disabled
+- **111**: Tank init 
 
 ### Unit Conversions
 

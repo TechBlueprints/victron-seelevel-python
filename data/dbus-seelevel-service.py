@@ -33,7 +33,21 @@ from typing import Dict
 
 from gi.repository import GLib
 
-MFG_ID_SEELEVEL = 305
+MFG_ID_CYPRESS = 305 # 709-BTP3
+MFG_ID_SEELEVEL = 3264 # 709-BTP7
+
+STATUS_SEELEVEL = {
+                   101: "Short Circuit",
+                   102: "Open",
+                   103: "Bitcount error",
+                   104: "Configured as non stacked but received stacked data",
+                   105: "Stacked, missing bottom sender data",
+                   106: "Stacked, missing top sender data",
+                   108: "Bad Checksum",
+                   110: "Tank disabled",
+                   111: "Tank init"
+                  }
+
 CONFIG_DIR = "/data/seelevel"
 HEARTBEAT_INTERVAL = 300  # 5 minutes
 
@@ -76,6 +90,7 @@ class SeeLevelService:
                     continue
                 
                 mac = config['mac']
+                sensor_type_id = config['sensor_type_id']
                 sensor_num = config['sensor_num']
                 sensor_key = f"{mac}_{sensor_num}"
                 
@@ -91,7 +106,7 @@ class SeeLevelService:
         
         logging.info(f"Loaded {len(self.configured_sensors)} enabled sensor(s)")
     
-    def start_sensor_process(self, mac: str, sensor_num: int, config: dict):
+    def start_sensor_process(self, mac: str, sensor_type_id: int, sensor_num: int, config: dict):
         """Start a sensor process"""
         sensor_key = f"{mac}_{sensor_num}"
         
@@ -105,7 +120,7 @@ class SeeLevelService:
         logging.info(f"Starting process for {custom_name}")
         
         # Build command with optional tank parameters
-        cmd = ['python3', '/data/dbus-seelevel-sensor.py', mac, str(sensor_num), custom_name]
+        cmd = ['python3', '/data/dbus-seelevel-sensor.py', mac, str(sensor_type_id), str(sensor_num), custom_name]
         
         # Add tank-specific parameters if present
         if 'tank_capacity_gallons' in config:
@@ -147,8 +162,12 @@ class SeeLevelService:
             self.current_mac = mac_match.group(1)
             return
         
-        company_match = re.search(r'Company: Cypress Semiconductor \((\d+)\)', line)
-        if company_match and int(company_match.group(1)) == MFG_ID_SEELEVEL:
+        company_match = re.search(r'Company: .* \((\d+)\)', line)
+        if company_match and (int(company_match.group(1)) == MFG_ID_CYPRESS or int(company_match.group(1)) == MFG_ID_SEELEVEL):
+            if (int(company_match.group(1)) == MFG_ID_SEELEVEL):
+                self.sensor_type_id = 1
+            else:
+                self.sensor_type_id = 0
             self.current_data = "pending"
             return
         
@@ -156,19 +175,19 @@ class SeeLevelService:
             data_match = re.search(r'Data: ([0-9a-f]+)', line)
             if data_match:
                 hex_data = data_match.group(1)
-                self.process_seelevel_data(self.current_mac, hex_data)
+                self.process_seelevel_data(self.current_mac, hex_data, self.sensor_type_id)
                 self.current_data = None
 
-    def process_seelevel_data(self, mac: str, hex_data: str):
+    def process_seelevel_data(self, mac: str, hex_data: str, sensor_type_id: int):
         """Process SeeLevel data and decide if update needed"""
-        try:
-            data = bytes.fromhex(hex_data)
-            if len(data) < 14:
-                return
-            
+        data = bytes.fromhex(hex_data)
+        if len(data) < 14:
+            return
+        
+        if sensor_type_id == 0:
             sensor_num = data[3]
             sensor_key = f"{mac}_{sensor_num}"
-            
+        
             # Only process configured sensors
             if sensor_key not in self.configured_sensors:
                 return
@@ -189,6 +208,26 @@ class SeeLevelService:
                     logging.info(f"{config['custom_name']}: Error")
                 return
             
+            self.process_sensor_update(mac, sensor_key, sensor_value, sensor_type_id, sensor_num)
+        else:
+            for sensor_num in range(9):
+                sensor_key = f"{mac}_{sensor_num}"
+                # Only process configured sensors
+                if sensor_key not in self.configured_sensors:
+                    continue
+                sensor_value = data[sensor_num+3]
+                if sensor_num < 8 and sensor_value > 100:
+                    if sensor_value in STATUS_SEELEVEL:
+                        logging.info(f"{config['custom_name']}: {STATUS_SEELEVEL[sensor_value]}")
+                    else:
+                        logging.info(f"{config['custom_name']}: Unknown Error #{sensor_value}")
+                    return
+                self.process_sensor_update(mac, sensor_key, sensor_value, sensor_type_id, sensor_num)
+
+    def process_sensor_update(self, mac: str, sensor_key: str, sensor_value: int, sensor_type_id: int, sensor_num: int):
+        """Process SeeLevel data and decide if update needed"""
+        try:
+            config = self.configured_sensors[sensor_key]
             # Check if we should send update
             now = time.time()
             value_changed = sensor_key not in self.last_value or self.last_value[sensor_key] != sensor_value
@@ -197,17 +236,17 @@ class SeeLevelService:
             if value_changed or time_for_heartbeat:
                 # Start process if needed
                 if sensor_key not in self.sensor_processes:
-                    self.start_sensor_process(mac, sensor_num, config)
+                    self.start_sensor_process(mac, sensor_type_id, sensor_num, config)
                 
                 # Send update
                 self.send_update(sensor_key, sensor_value)
                 
                 # Log only on value changes
                 if value_changed:
-                    if sensor_num == 13:  # Battery
+                    if (sensor_type_id == 0 and sensor_num == 13) or (sensor_type_id == 1 and sensor_num == 8):  # Battery
                         voltage = sensor_value / 10.0
                         logging.info(f"{config['custom_name']}: {voltage}V (changed)")
-                    elif sensor_num in [7, 8, 9, 10]:  # Temperature
+                    elif sensor_type_id == 0 and sensor_num in [7, 8, 9, 10]:  # Temperature
                         temp_c = (sensor_value - 32.0) * 5.0 / 9.0
                         logging.info(f"{config['custom_name']}: {temp_c:.1f}°C (changed)")
                     else:  # Tank
@@ -221,8 +260,8 @@ class SeeLevelService:
                 
                 # Track last update time and value
                 self.last_update[sensor_key] = now
-                self.last_value[sensor_key] = sensor_value
-            
+                self.last_value[sensor_key] = sensor_value            
+        
         except Exception as e:
             logging.error(f"Process error: {e}")
 

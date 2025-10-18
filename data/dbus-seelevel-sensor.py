@@ -42,38 +42,51 @@ FLUID_TYPE_WASTE_WATER = 2
 FLUID_TYPE_BLACK_WATER = 5
 FLUID_TYPE_LPG = 8
 
-SENSOR_TYPES = {
-    0: ("Fresh Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_FRESH_WATER),
-    1: ("Toilet Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_BLACK_WATER),
-    2: ("Wash Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
-    3: ("LPG", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_LPG),
-    4: ("LPG 2", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_LPG),
-    5: ("Galley Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
-    6: ("Galley Water 2", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
-    7: ("Temp", "temperature", VE_PROD_ID_TEMPERATURE_SENSOR, None),
-    8: ("Temp 2", "temperature", VE_PROD_ID_TEMPERATURE_SENSOR, None),
-    9: ("Temp 3", "temperature", VE_PROD_ID_TEMPERATURE_SENSOR, None),
-    10: ("Temp 4", "temperature", VE_PROD_ID_TEMPERATURE_SENSOR, None),
-    11: ("Chemical", "tank", VE_PROD_ID_TANK_SENSOR, 0),
-    12: ("Chemical 2", "tank", VE_PROD_ID_TANK_SENSOR, 0),
-    13: ("Battery", "battery", VE_PROD_ID_BATTERY_MONITOR, None),
-}
-
+SENSOR_TYPES = [
+                {
+                 0: ("Fresh Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_FRESH_WATER),
+                 1: ("Toilet Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_BLACK_WATER),
+                 2: ("Wash Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
+                 3: ("LPG", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_LPG),
+                 4: ("LPG 2", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_LPG),
+                 5: ("Galley Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
+                 6: ("Galley Water 2", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
+                 7: ("Temp", "temperature", VE_PROD_ID_TEMPERATURE_SENSOR, None),
+                 8: ("Temp 2", "temperature", VE_PROD_ID_TEMPERATURE_SENSOR, None),
+                 9: ("Temp 3", "temperature", VE_PROD_ID_TEMPERATURE_SENSOR, None),
+                 10: ("Temp 4", "temperature", VE_PROD_ID_TEMPERATURE_SENSOR, None),
+                 11: ("Chemical", "tank", VE_PROD_ID_TANK_SENSOR, 0),
+                 12: ("Chemical 2", "tank", VE_PROD_ID_TANK_SENSOR, 0),
+                 13: ("Battery", "battery", VE_PROD_ID_BATTERY_MONITOR, None)
+                },
+                {
+                 0: ("Fresh Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_FRESH_WATER),
+                 1: ("Wash Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
+                 2: ("Toilet Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_BLACK_WATER),
+                 3: ("Fresh Water 2", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_FRESH_WATER),
+                 4: ("Wash Water 2", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
+                 5: ("Toilet Water 2", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_BLACK_WATER),
+                 6: ("Wash Water 3", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
+                 7: ("LPG", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_LPG),
+                 8: ("Battery", "battery", VE_PROD_ID_BATTERY_MONITOR, None)
+                }
+               ]
 
 class SeeLevelSensor:
     """Minimal sensor process - just maintains DBus and applies updates"""
     
-    def __init__(self, mac: str, sensor_num: int, custom_name: str = None, 
+    def __init__(self, mac: str, sensor_type_id: int, sensor_num: int, custom_name: str = None, 
                  tank_capacity_gallons: float = 0):
         self.mac = mac
+        self.sensor_type_id = sensor_type_id
         self.sensor_num = sensor_num
         self.custom_name = custom_name
         self.tank_capacity_gallons = tank_capacity_gallons
         
-        if sensor_num not in SENSOR_TYPES:
+        if sensor_num not in SENSOR_TYPES[sensor_type_id]:
             sys.exit(1)
         
-        name, role, product_id, fluid_type = SENSOR_TYPES[sensor_num]
+        name, role, product_id, fluid_type = SENSOR_TYPES[sensor_type_id][sensor_num]
         
         mac_clean = mac.replace(':', '').lower()
         device_id = f"seelevel_{mac_clean}_{sensor_num:02x}"
@@ -97,9 +110,9 @@ class SeeLevelSensor:
         self.service.add_path('/Connected', 1)
         self.service.add_path('/Status', 0)
         
-        if sensor_num == 13:  # Battery
+        if (sensor_type_id == 0 and sensor_num == 13) or (sensor_type_id == 1 and sensor_num == 8):  # Battery
             self.service.add_path('/Dc/0/Voltage', 0)
-        elif sensor_num in [7, 8, 9, 10]:  # Temperature
+        elif sensor_type_id == 0 and sensor_num in [7, 8, 9, 10]:  # Temperature
             self.service.add_path('/Temperature', 0)
         else:  # Tank
             self.service.add_path('/Level', 0)
@@ -154,10 +167,10 @@ class SeeLevelSensor:
 
     def update(self, sensor_value: int):
         """Update DBus paths with new value"""
-        if self.sensor_num == 13:  # Battery
+        if (self.sensor_type_id == 0 and self.sensor_num == 13) or (self.sensor_type_id == 1 and self.sensor_num == 8):  # Battery
             voltage = sensor_value / 10.0
             self.service['/Dc/0/Voltage'] = voltage
-        elif self.sensor_num in [7, 8, 9, 10]:  # Temperature
+        elif self.sensor_type_id == 0 and self.sensor_num in [7, 8, 9, 10]:  # Temperature
             temp_c = (sensor_value - 32.0) * 5.0 / 9.0
             self.service['/Temperature'] = round(temp_c, 1)
         else:  # Tank
@@ -194,15 +207,16 @@ class SeeLevelSensor:
 
 
 def main():
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 4:
         sys.exit(1)
     
     mac = sys.argv[1]
-    sensor_num = int(sys.argv[2])
-    custom_name = sys.argv[3] if len(sys.argv) > 3 else None
-    tank_capacity_gallons = float(sys.argv[4]) if len(sys.argv) > 4 else 0
+    sensor_type_id = int(sys.argv[2])
+    sensor_num = int(sys.argv[3])
+    custom_name = sys.argv[4] if len(sys.argv) > 4 else None
+    tank_capacity_gallons = float(sys.argv[5]) if len(sys.argv) > 5 else 0
     
-    sensor = SeeLevelSensor(mac, sensor_num, custom_name, tank_capacity_gallons)
+    sensor = SeeLevelSensor(mac, sensor_type_id, sensor_num, custom_name, tank_capacity_gallons)
     sensor.run()
 
 
