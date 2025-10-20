@@ -176,8 +176,8 @@ class SeeLevelSensor:
     def update(self, sensor_value: int, alarm_state: int = None):
         """Update DBus paths with new value and optional alarm"""
         if (self.sensor_type_id == 0 and self.sensor_num == 13) or (self.sensor_type_id == 1 and self.sensor_num == 8):  # Battery
-            # BTP3 (type 0): voltage × 10, BTP7 (type 1): voltage × 100
-            voltage = sensor_value / 10.0 if self.sensor_type_id == 0 else sensor_value / 100.0
+            # Both BTP3 and BTP7: voltage × 10
+            voltage = sensor_value / 10.0
             self.service['/Dc/0/Voltage'] = voltage
         elif self.sensor_type_id == 0 and self.sensor_num in [7, 8, 9, 10]:  # Temperature
             temp_c = (sensor_value - 32.0) * 5.0 / 9.0
