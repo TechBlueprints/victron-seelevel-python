@@ -460,6 +460,8 @@ Values in sensor bytes (3-11) for tank sensors:
 - Sensors with errors are logged but not created in DBus
 - Different error codes indicate specific sensor faults
 
+> **Note on BTP7 Alarms**: The official [SeeLeveL RV 2.0 app](https://play.google.com/store/apps/details?id=com.seelevelrvfinal) advertises alarm support for both 709-BTP3 and 709-BTP7 models. However, no alarm byte has been identified in BTP7 BLE packets. The app likely generates alarms client-side based on user-configured thresholds, or alarms may be triggered by error codes (101-111). Further investigation needed.
+
 ### Unit Conversions
 
 - **Tank Volume/Capacity**: Gallons × 0.00378541 = m³
@@ -499,6 +501,15 @@ Without this work, BTP7 support would not have been possible as no official docu
 
 ### 709-BT/BTP3 Format
 The 709-BT/BTP3 format is based on the "Garnet 709BT BLE Technical Document" (internal, non-public) as referenced in the [Victron Community Forums](https://community.victronenergy.com/t/seelevel-ii-bluetooth-integration-for-709-btp3-in-cerbo-gx-mk2/40553).
+
+### Official App Reference
+The official [SeeLeveL RV 2.0 app](https://play.google.com/store/apps/details?id=com.seelevelrvfinal) by Garnet Instruments supports both 709-BTP3 and 709-BTP7 models. The app implements:
+- Real-time tank monitoring via Bluetooth
+- Customizable high/low level alarms
+- Tank renaming and color customization
+- Support for both device formats
+
+While the app's implementation details are proprietary, its existence confirms both protocol variants are actively supported by the manufacturer.
 
 ## License
 
