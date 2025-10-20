@@ -137,8 +137,8 @@ class SeeLevelService:
         
         self.sensor_processes[sensor_key] = proc
 
-    def send_update(self, sensor_key: str, sensor_value: int):
-        """Send update to sensor process (just the value)"""
+    def send_update(self, sensor_key: str, sensor_value: int, alarm_state: int = None):
+        """Send update to sensor process (value and optional alarm for BTP3)"""
         if sensor_key not in self.sensor_processes:
             return
         
@@ -147,7 +147,11 @@ class SeeLevelService:
             return  # Process died
         
         try:
-            proc.stdin.write(f"{sensor_value}\n")
+            # Send as "value:alarm" or just "value" if no alarm
+            if alarm_state is not None:
+                proc.stdin.write(f"{sensor_value}:{alarm_state}\n")
+            else:
+                proc.stdin.write(f"{sensor_value}\n")
             proc.stdin.flush()
         except Exception as e:
             logging.error(f"Failed to write to {sensor_key}: {e}")
@@ -208,7 +212,12 @@ class SeeLevelService:
                     logging.info(f"{config['custom_name']}: Error")
                 return
             
-            self.process_sensor_update(mac, sensor_key, sensor_value, sensor_type_id, sensor_num)
+            # Parse alarm byte (byte 13, ASCII digit 0-9) for BTP3
+            alarm_state = None
+            if len(data) >= 14 and data[13] >= ord('0') and data[13] <= ord('9'):
+                alarm_state = data[13] - ord('0')
+            
+            self.process_sensor_update(mac, sensor_key, sensor_value, sensor_type_id, sensor_num, alarm_state)
         else:
             for sensor_num in range(9):
                 sensor_key = f"{mac}_{sensor_num}"
@@ -222,9 +231,9 @@ class SeeLevelService:
                     else:
                         logging.info(f"{config['custom_name']}: Unknown Error #{sensor_value}")
                     return
-                self.process_sensor_update(mac, sensor_key, sensor_value, sensor_type_id, sensor_num)
+                self.process_sensor_update(mac, sensor_key, sensor_value, sensor_type_id, sensor_num, alarm_state=None)
 
-    def process_sensor_update(self, mac: str, sensor_key: str, sensor_value: int, sensor_type_id: int, sensor_num: int):
+    def process_sensor_update(self, mac: str, sensor_key: str, sensor_value: int, sensor_type_id: int, sensor_num: int, alarm_state: int = None):
         """Process SeeLevel data and decide if update needed"""
         try:
             config = self.configured_sensors[sensor_key]
@@ -238,25 +247,28 @@ class SeeLevelService:
                 if sensor_key not in self.sensor_processes:
                     self.start_sensor_process(mac, sensor_type_id, sensor_num, config)
                 
-                # Send update
-                self.send_update(sensor_key, sensor_value)
+                # Send update (with alarm state if BTP3)
+                self.send_update(sensor_key, sensor_value, alarm_state)
                 
                 # Log only on value changes
                 if value_changed:
+                    # Add alarm indicator for BTP3
+                    alarm_suffix = f" [ALARM {alarm_state}]" if alarm_state and alarm_state > 0 else ""
+                    
                     if (sensor_type_id == 0 and sensor_num == 13) or (sensor_type_id == 1 and sensor_num == 8):  # Battery
                         voltage = sensor_value / 10.0
-                        logging.info(f"{config['custom_name']}: {voltage}V (changed)")
+                        logging.info(f"{config['custom_name']}: {voltage}V (changed){alarm_suffix}")
                     elif sensor_type_id == 0 and sensor_num in [7, 8, 9, 10]:  # Temperature
                         temp_c = (sensor_value - 32.0) * 5.0 / 9.0
-                        logging.info(f"{config['custom_name']}: {temp_c:.1f}°C (changed)")
+                        logging.info(f"{config['custom_name']}: {temp_c:.1f}°C (changed){alarm_suffix}")
                     else:  # Tank
                         tank_capacity_gallons = config.get('tank_capacity_gallons', 0)
                         if tank_capacity_gallons > 0:
                             capacity_m3 = round(tank_capacity_gallons * 0.00378541, 3)
                             remaining_m3 = round(capacity_m3 * sensor_value / 100.0, 3)
-                            logging.info(f"{config['custom_name']}: {sensor_value}% ({remaining_m3}/{capacity_m3} m³) (changed)")
+                            logging.info(f"{config['custom_name']}: {sensor_value}% ({remaining_m3}/{capacity_m3} m³) (changed){alarm_suffix}")
                         else:
-                            logging.info(f"{config['custom_name']}: {sensor_value}% (changed)")
+                            logging.info(f"{config['custom_name']}: {sensor_value}% (changed){alarm_suffix}")
                 
                 # Track last update time and value
                 self.last_update[sensor_key] = now

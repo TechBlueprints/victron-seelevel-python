@@ -109,6 +109,7 @@ class SeeLevelSensor:
         self.service.add_path('/CustomName', device_name)
         self.service.add_path('/Connected', 1)
         self.service.add_path('/Status', 0)
+        self.service.add_path('/Alarm', 0)  # Alarm state (0-9, where 0 = no alarm)
         
         if (sensor_type_id == 0 and sensor_num == 13) or (sensor_type_id == 1 and sensor_num == 8):  # Battery
             self.service.add_path('/Dc/0/Voltage', 0)
@@ -152,9 +153,16 @@ class SeeLevelSensor:
             if line == "SHUTDOWN":
                 sys.exit(0)
             
-            # Parse sensor value as integer
-            sensor_value = int(line)
-            self.update(sensor_value)
+            # Parse sensor value and optional alarm (format: "value" or "value:alarm")
+            if ':' in line:
+                parts = line.split(':', 1)
+                sensor_value = int(parts[0])
+                alarm_state = int(parts[1])
+            else:
+                sensor_value = int(line)
+                alarm_state = None
+            
+            self.update(sensor_value, alarm_state)
             
         except ValueError:
             # Invalid data, ignore
@@ -165,8 +173,8 @@ class SeeLevelSensor:
         
         return True
 
-    def update(self, sensor_value: int):
-        """Update DBus paths with new value"""
+    def update(self, sensor_value: int, alarm_state: int = None):
+        """Update DBus paths with new value and optional alarm"""
         if (self.sensor_type_id == 0 and self.sensor_num == 13) or (self.sensor_type_id == 1 and self.sensor_num == 8):  # Battery
             voltage = sensor_value / 10.0
             self.service['/Dc/0/Voltage'] = voltage
@@ -182,6 +190,10 @@ class SeeLevelSensor:
                 remaining_m3 = round(capacity_m3 * level / 100.0, 3)
                 self.service['/Capacity'] = capacity_m3
                 self.service['/Remaining'] = remaining_m3
+        
+        # Set alarm state if provided (0-9, where 0 = no alarm)
+        if alarm_state is not None:
+            self.service['/Alarm'] = alarm_state
         
         self.service['/Status'] = 0
         
