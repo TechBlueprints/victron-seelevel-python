@@ -96,6 +96,7 @@ class SeeLevelSensor:
         self.service.add_path('/CustomName', device_name)
         self.service.add_path('/Connected', 1)
         self.service.add_path('/Status', 0)
+        self.service.add_path('/Alarm', 0)  # Alarm state (0-9, where 0 = no alarm)
         
         if sensor_num == 13:  # Battery
             self.service.add_path('/Dc/0/Voltage', 0)
@@ -153,8 +154,11 @@ class SeeLevelSensor:
         except ValueError:
             # Invalid data, ignore
             pass
-        except Exception:
-            # Any other error, terminate
+        except Exception as e:
+            # Log error to stderr and terminate
+            print(f"ERROR in read_stdin: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
             sys.exit(1)
         
         return True
@@ -185,8 +189,15 @@ class SeeLevelSensor:
         
         # Register on first update
         if not self.registered:
-            self.service.register()
-            self.registered = True
+            try:
+                self.service.register()
+                self.registered = True
+                print(f"Registered {self.custom_name} on DBus", file=sys.stderr)
+            except Exception as e:
+                print(f"ERROR registering {self.custom_name}: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+                sys.exit(1)
 
     def run(self):
         """Run the sensor process"""
@@ -212,6 +223,8 @@ def main():
     sensor_num = int(sys.argv[2])
     custom_name = sys.argv[3] if len(sys.argv) > 3 else None
     tank_capacity_gallons = float(sys.argv[4]) if len(sys.argv) > 4 else 0
+    
+    print(f"Starting sensor process for {custom_name} ({mac}, sensor {sensor_num})", file=sys.stderr)
     
     sensor = SeeLevelSensor(mac, sensor_num, custom_name, tank_capacity_gallons)
     sensor.run()

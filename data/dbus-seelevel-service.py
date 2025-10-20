@@ -130,7 +130,7 @@ class SeeLevelService:
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=None,  # Inherit parent's stderr so multilog captures it
             universal_newlines=True,
             bufsize=1
         )
