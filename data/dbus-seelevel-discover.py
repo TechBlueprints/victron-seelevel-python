@@ -28,12 +28,20 @@ import json
 import os
 from typing import Dict, Set
 
-MFG_ID_SEELEVEL = 305
+MFG_ID_SEELEVEL = 305  # 709-BT/BTP3 (Cypress Semiconductor) - ASCII format
+MFG_ID_SEELEVEL_BTP7 = 3264  # 709-BTP7 - Binary format
 
-SENSOR_TYPES = {
+# 709-BT/BTP3 sensor types (ASCII format)
+SENSOR_TYPES_BT = {
     0: "Fresh Water", 1: "Toilet Water", 2: "Wash Water", 3: "LPG", 4: "LPG 2",
     5: "Galley Water", 6: "Galley Water 2", 7: "Temp", 8: "Temp 2",
     9: "Temp 3", 10: "Temp 4", 11: "Chemical", 12: "Chemical 2", 13: "Battery"
+}
+
+# 709-BTP7 sensor types (binary format, bytes 3-11)
+SENSOR_TYPES_BTP7 = {
+    0: "Fresh Water", 1: "Wash Water", 2: "Toilet Water", 3: "Fresh Water 2",
+    4: "Wash Water 2", 5: "Toilet Water 2", 6: "Wash Water 3", 7: "LPG", 8: "Battery"
 }
 
 CONFIG_DIR = "/data/seelevel"
@@ -46,6 +54,7 @@ class SeeLevelDiscovery:
         self.discovered: Set[str] = set()
         self.current_mac = None
         self.current_data = None
+        self.current_device_type = None  # 'BT' or 'BTP7'
         self.last_discovery_time = None
         self.should_continue = True
         
@@ -61,43 +70,68 @@ class SeeLevelDiscovery:
             self.current_mac = mac_match.group(1)
             return
         
+        # Match 709-BT/BTP3 (Cypress Semiconductor, ID 305)
         company_match = re.search(r'Company: Cypress Semiconductor \((\d+)\)', line)
         if company_match and int(company_match.group(1)) == MFG_ID_SEELEVEL:
             self.current_data = "pending"
+            self.current_device_type = "BT"
             return
         
-        if self.current_data == "pending" and self.current_mac:
+        # Match 709-BTP7 (not assigned, ID 3264)
+        company_match = re.search(r'Company: not assigned \((\d+)\)', line)
+        if company_match and int(company_match.group(1)) == MFG_ID_SEELEVEL_BTP7:
+            self.current_data = "pending"
+            self.current_device_type = "BTP7"
+            return
+        
+        if self.current_data == "pending" and self.current_mac and self.current_device_type:
             data_match = re.search(r'Data: ([0-9a-f]+)', line)
             if data_match:
                 hex_data = data_match.group(1)
-                self.process_seelevel_data(self.current_mac, hex_data)
+                self.process_seelevel_data(self.current_mac, hex_data, self.current_device_type)
                 self.current_data = None
+                self.current_device_type = None
 
-    def process_seelevel_data(self, mac: str, hex_data: str):
+    def process_seelevel_data(self, mac: str, hex_data: str, device_type: str):
         """Process SeeLevel data and create config"""
         try:
             data = bytes.fromhex(hex_data)
             if len(data) < 14:
                 return
             
-            sensor_num = data[3]
-            data_str = data[4:7].decode('ascii', errors='ignore')
-            
-            # Check if sensor is disconnected
-            is_disconnected = (data_str.strip() == "OPN")
-            
-            if sensor_num not in SENSOR_TYPES:
-                return
-            
-            sensor_key = f"{mac}_{sensor_num}"
-            
-            if sensor_key in self.discovered:
-                return  # Already found
-            
-            self.discovered.add(sensor_key)
-            print()  # New line after scanning dots
-            self.create_config(mac, sensor_num, is_disconnected)
-            # Reset timer AFTER user finishes configuring (in create_config)
+            if device_type == "BT":
+                # 709-BT/BTP3: ASCII format, one sensor per packet
+                sensor_num = data[3]
+                data_str = data[4:7].decode('ascii', errors='ignore')
+                is_disconnected = (data_str.strip() == "OPN")
+                
+                if sensor_num not in SENSOR_TYPES_BT:
+                    return
+                
+                sensor_key = f"{mac}_{sensor_num}"
+                if sensor_key in self.discovered:
+                    return
+                
+                self.discovered.add(sensor_key)
+                print()  # New line after scanning dots
+                self.create_config(mac, sensor_num, is_disconnected, device_type)
+                
+            elif device_type == "BTP7":
+                # 709-BTP7: Binary format, all sensors in one packet
+                for sensor_num in range(9):
+                    sensor_value = data[3 + sensor_num]
+                    is_disconnected = (sensor_value > 100 and sensor_num < 8)  # Error codes
+                    
+                    sensor_key = f"{mac}_{sensor_num}"
+                    if sensor_key in self.discovered:
+                        continue
+                    
+                    self.discovered.add(sensor_key)
+                    print()  # New line after scanning dots
+                    self.create_config(mac, sensor_num, is_disconnected, device_type)
+                    
+                    if not self.should_continue:
+                        return
             
             # If user chose not to continue, stop scanning
             if not self.should_continue:
@@ -106,9 +140,10 @@ class SeeLevelDiscovery:
         except:
             pass
 
-    def create_config(self, mac: str, sensor_num: int, is_disconnected: bool = False):
+    def create_config(self, mac: str, sensor_num: int, is_disconnected: bool, device_type: str):
         """Create configuration file for a sensor"""
-        sensor_name = SENSOR_TYPES[sensor_num]
+        sensor_types = SENSOR_TYPES_BT if device_type == "BT" else SENSOR_TYPES_BTP7
+        sensor_name = sensor_types[sensor_num]
         
         # Use friendly name for filename, with spaces replaced by dashes
         friendly_filename = sensor_name.replace(' ', '-').lower()
