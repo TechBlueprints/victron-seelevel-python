@@ -280,21 +280,24 @@ class SeeLevelService:
             
             # Log only on value changes
             if value_changed:
+                # Build alarm suffix if present
+                alarm_suffix = f" [ALARM {alarm_state}]" if alarm_state and alarm_state > 0 else ""
+                
                 # BT: sensor 13 is battery, BTP7: sensor 8 is battery
                 if sensor_num in [8, 13]:  # Battery
                     voltage = sensor_value / 10.0
-                    logging.info(f"{config['custom_name']}: {voltage}V (changed)")
+                    logging.info(f"{config['custom_name']}: {voltage}V (changed){alarm_suffix}")
                 elif sensor_num in [7, 8, 9, 10]:  # Temperature (BT only)
                     temp_c = (sensor_value - 32.0) * 5.0 / 9.0
-                    logging.info(f"{config['custom_name']}: {temp_c:.1f}°C (changed)")
+                    logging.info(f"{config['custom_name']}: {temp_c:.1f}°C (changed){alarm_suffix}")
                 else:  # Tank
                     tank_capacity_gallons = config.get('tank_capacity_gallons', 0)
                     if tank_capacity_gallons > 0:
                         capacity_m3 = round(tank_capacity_gallons * 0.00378541, 3)
                         remaining_m3 = round(capacity_m3 * sensor_value / 100.0, 3)
-                        logging.info(f"{config['custom_name']}: {sensor_value}% ({remaining_m3}/{capacity_m3} m³) (changed)")
+                        logging.info(f"{config['custom_name']}: {sensor_value}% ({remaining_m3}/{capacity_m3} m³) (changed){alarm_suffix}")
                     else:
-                        logging.info(f"{config['custom_name']}: {sensor_value}% (changed)")
+                        logging.info(f"{config['custom_name']}: {sensor_value}% (changed){alarm_suffix}")
             
             # Track last update time and value
             self.last_update[sensor_key] = now
