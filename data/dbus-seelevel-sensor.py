@@ -42,38 +42,51 @@ FLUID_TYPE_WASTE_WATER = 2
 FLUID_TYPE_BLACK_WATER = 5
 FLUID_TYPE_LPG = 8
 
-SENSOR_TYPES = {
-    0: ("Fresh Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_FRESH_WATER),
-    1: ("Toilet Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_BLACK_WATER),
-    2: ("Wash Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
-    3: ("LPG", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_LPG),
-    4: ("LPG 2", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_LPG),
-    5: ("Galley Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
-    6: ("Galley Water 2", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
-    7: ("Temp", "temperature", VE_PROD_ID_TEMPERATURE_SENSOR, None),
-    8: ("Temp 2", "temperature", VE_PROD_ID_TEMPERATURE_SENSOR, None),
-    9: ("Temp 3", "temperature", VE_PROD_ID_TEMPERATURE_SENSOR, None),
-    10: ("Temp 4", "temperature", VE_PROD_ID_TEMPERATURE_SENSOR, None),
-    11: ("Chemical", "tank", VE_PROD_ID_TANK_SENSOR, 0),
-    12: ("Chemical 2", "tank", VE_PROD_ID_TANK_SENSOR, 0),
-    13: ("Battery", "battery", VE_PROD_ID_BATTERY_MONITOR, None),
-}
-
+SENSOR_TYPES = [
+                {
+                 0: ("Fresh Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_FRESH_WATER),
+                 1: ("Toilet Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_BLACK_WATER),
+                 2: ("Wash Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
+                 3: ("LPG", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_LPG),
+                 4: ("LPG 2", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_LPG),
+                 5: ("Galley Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
+                 6: ("Galley Water 2", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
+                 7: ("Temp", "temperature", VE_PROD_ID_TEMPERATURE_SENSOR, None),
+                 8: ("Temp 2", "temperature", VE_PROD_ID_TEMPERATURE_SENSOR, None),
+                 9: ("Temp 3", "temperature", VE_PROD_ID_TEMPERATURE_SENSOR, None),
+                 10: ("Temp 4", "temperature", VE_PROD_ID_TEMPERATURE_SENSOR, None),
+                 11: ("Chemical", "tank", VE_PROD_ID_TANK_SENSOR, 0),
+                 12: ("Chemical 2", "tank", VE_PROD_ID_TANK_SENSOR, 0),
+                 13: ("Battery", "battery", VE_PROD_ID_BATTERY_MONITOR, None)
+                },
+                {
+                 0: ("Fresh Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_FRESH_WATER),
+                 1: ("Wash Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
+                 2: ("Toilet Water", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_BLACK_WATER),
+                 3: ("Fresh Water 2", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_FRESH_WATER),
+                 4: ("Wash Water 2", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
+                 5: ("Toilet Water 2", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_BLACK_WATER),
+                 6: ("Wash Water 3", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_WASTE_WATER),
+                 7: ("LPG", "tank", VE_PROD_ID_TANK_SENSOR, FLUID_TYPE_LPG),
+                 8: ("Battery", "battery", VE_PROD_ID_BATTERY_MONITOR, None)
+                }
+               ]
 
 class SeeLevelSensor:
     """Minimal sensor process - just maintains DBus and applies updates"""
     
-    def __init__(self, mac: str, sensor_num: int, custom_name: str = None, 
+    def __init__(self, mac: str, sensor_type_id: int, sensor_num: int, custom_name: str = None, 
                  tank_capacity_gallons: float = 0):
         self.mac = mac
+        self.sensor_type_id = sensor_type_id
         self.sensor_num = sensor_num
         self.custom_name = custom_name
         self.tank_capacity_gallons = tank_capacity_gallons
         
-        if sensor_num not in SENSOR_TYPES:
+        if sensor_num not in SENSOR_TYPES[sensor_type_id]:
             sys.exit(1)
         
-        name, role, product_id, fluid_type = SENSOR_TYPES[sensor_num]
+        name, role, product_id, fluid_type = SENSOR_TYPES[sensor_type_id][sensor_num]
         
         mac_clean = mac.replace(':', '').lower()
         device_id = f"seelevel_{mac_clean}_{sensor_num:02x}"
@@ -96,11 +109,10 @@ class SeeLevelSensor:
         self.service.add_path('/CustomName', device_name)
         self.service.add_path('/Connected', 1)
         self.service.add_path('/Status', 0)
-        self.service.add_path('/Alarm', 0)  # Alarm state (0-9, where 0 = no alarm)
         
-        if sensor_num == 13:  # Battery
+        if (sensor_type_id == 0 and sensor_num == 13) or (sensor_type_id == 1 and sensor_num == 8):  # Battery
             self.service.add_path('/Dc/0/Voltage', 0)
-        elif sensor_num in [7, 8, 9, 10]:  # Temperature
+        elif sensor_type_id == 0 and sensor_num in [7, 8, 9, 10]:  # Temperature
             self.service.add_path('/Temperature', 0)
         else:  # Tank
             self.service.add_path('/Level', 0)
@@ -140,35 +152,25 @@ class SeeLevelSensor:
             if line == "SHUTDOWN":
                 sys.exit(0)
             
-            # Parse sensor value and optional alarm (format: "value" or "value:alarm")
-            if ':' in line:
-                parts = line.split(':', 1)
-                sensor_value = int(parts[0])
-                alarm_state = int(parts[1])
-            else:
-                sensor_value = int(line)
-                alarm_state = None
-            
-            self.update(sensor_value, alarm_state)
+            # Parse sensor value as integer
+            sensor_value = int(line)
+            self.update(sensor_value)
             
         except ValueError:
             # Invalid data, ignore
             pass
-        except Exception as e:
-            # Log error to stderr and terminate
-            print(f"ERROR in read_stdin: {e}", file=sys.stderr)
-            import traceback
-            traceback.print_exc(file=sys.stderr)
+        except Exception:
+            # Any other error, terminate
             sys.exit(1)
         
         return True
 
-    def update(self, sensor_value: int, alarm_state: int = None):
-        """Update DBus paths with new value and optional alarm"""
-        if self.sensor_num == 13:  # Battery
+    def update(self, sensor_value: int):
+        """Update DBus paths with new value"""
+        if (self.sensor_type_id == 0 and self.sensor_num == 13) or (self.sensor_type_id == 1 and self.sensor_num == 8):  # Battery
             voltage = sensor_value / 10.0
             self.service['/Dc/0/Voltage'] = voltage
-        elif self.sensor_num in [7, 8, 9, 10]:  # Temperature
+        elif self.sensor_type_id == 0 and self.sensor_num in [7, 8, 9, 10]:  # Temperature
             temp_c = (sensor_value - 32.0) * 5.0 / 9.0
             self.service['/Temperature'] = round(temp_c, 1)
         else:  # Tank
@@ -181,23 +183,12 @@ class SeeLevelSensor:
                 self.service['/Capacity'] = capacity_m3
                 self.service['/Remaining'] = remaining_m3
         
-        # Set alarm state if provided (0-9, where 0 = no alarm)
-        if alarm_state is not None:
-            self.service['/Alarm'] = alarm_state
-        
         self.service['/Status'] = 0
         
         # Register on first update
         if not self.registered:
-            try:
-                self.service.register()
-                self.registered = True
-                print(f"Registered {self.custom_name} on DBus", file=sys.stderr)
-            except Exception as e:
-                print(f"ERROR registering {self.custom_name}: {e}", file=sys.stderr)
-                import traceback
-                traceback.print_exc(file=sys.stderr)
-                sys.exit(1)
+            self.service.register()
+            self.registered = True
 
     def run(self):
         """Run the sensor process"""
@@ -216,17 +207,16 @@ class SeeLevelSensor:
 
 
 def main():
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 4:
         sys.exit(1)
     
     mac = sys.argv[1]
-    sensor_num = int(sys.argv[2])
-    custom_name = sys.argv[3] if len(sys.argv) > 3 else None
-    tank_capacity_gallons = float(sys.argv[4]) if len(sys.argv) > 4 else 0
+    sensor_type_id = int(sys.argv[2])
+    sensor_num = int(sys.argv[3])
+    custom_name = sys.argv[4] if len(sys.argv) > 4 else None
+    tank_capacity_gallons = float(sys.argv[5]) if len(sys.argv) > 5 else 0
     
-    print(f"Starting sensor process for {custom_name} ({mac}, sensor {sensor_num})", file=sys.stderr)
-    
-    sensor = SeeLevelSensor(mac, sensor_num, custom_name, tank_capacity_gallons)
+    sensor = SeeLevelSensor(mac, sensor_type_id, sensor_num, custom_name, tank_capacity_gallons)
     sensor.run()
 
 

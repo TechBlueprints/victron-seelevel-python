@@ -14,20 +14,11 @@ This Python implementation provides an alternative to the C daemon while users a
 - **Persistent Configuration** - JSON-based config files for easy customization
 - **Daemontools Service** - Auto-start on boot with automatic restart on failure
 
-## Supported Devices
+## Supported Sensors
 
-### SeeLevel 709-BT/BTP3 (Manufacturer ID: 0x0131)
-- **Tank Sensors**: Fresh Water, Black Water, Gray Water, Galley Water, LPG, Chemical
+- **Tank Sensors**: Fresh Water, Waste Water (Black), Gray Water, Galley Water, LPG, Chemical
 - **Temperature Sensors**: Up to 4 temperature probes
 - **Battery Monitor**: Voltage monitoring
-- **Features**: Alarm support, volume/capacity reporting
-
-### SeeLevel 709-BTP7 (Manufacturer ID: 0x0CC0)
-- **Tank Sensors**: Up to 3 Fresh Water, 3 Gray Water, 2 Black Water, 1 LPG
-- **Battery Monitor**: Voltage monitoring
-- **Features**: All sensors in one packet, error code reporting
-
-> **Note on BTP7**: BTP7 support is based on reverse engineering work by [atillack](https://github.com/atillack). BTP7 devices do not have a dedicated alarm byte but use error codes (101-111) to indicate sensor issues.
 
 ## Project Structure
 
@@ -321,10 +312,6 @@ The Garnet 709-BT hardware supports Bluetooth Low Energy (BLE), and is configure
 
 ### BLE Packet Formats
 
-SeeLevel devices broadcast using two different formats depending on the model:
-
-#### 709-BT/BTP3 Format (ASCII)
-
 **Manufacturer ID**: 305 (0x0131) - Cypress Semiconductor
 
 **Payload** (14 bytes):
@@ -335,132 +322,59 @@ SeeLevel devices broadcast using two different formats depending on the model:
 - **Bytes 10-12**: Sensor Total (3 ASCII characters, gallons)
 - **Byte 13**: Sensor Alarm (ASCII digit '0'-'9')
 
-**Characteristics**:
-- One sensor per packet (cycles through all sensors)
-- ASCII-encoded data
-- Includes volume and capacity information
-- Has dedicated alarm byte
-
-#### 709-BTP7 Format (Binary)
-
-**Manufacturer ID**: 3264 (0x0CC0) - "not assigned"
+**Manufacturer ID**: 3264 (0x0CC0) - Seelevel (used in newer BTP7 device)
 
 **Payload** (14 bytes):
 - **Bytes 0-2**: Coach ID (24-bit unique hardware ID, little-endian)
-- **Bytes 3-11**: All 9 sensors in one packet (see sensor mapping below)
-
-**Sensor Mapping (Bytes 3-11)**:
-| Byte | Sensor Type |
-|------|-------------|
-| 3 | Fresh Water 1 |
-| 4 | Gray Water 1 |
-| 5 | Black Water 1 |
-| 6 | Fresh Water 2 |
-| 7 | Gray Water 2 |
-| 8 | Black Water 2 |
-| 9 | Gray Water 3 |
-| 10 | LPG |
-| 11 | Battery (voltage × 10) |
-
-**Value Encoding**:
-- **0-100**: Level percentage (for tanks) or voltage×10 (for battery)
-- **Values > 100**: Error/status codes (see BTP7 Status Codes below)
-
-**Characteristics**:
-- All sensors in one packet (no cycling)
-- Binary-encoded data (not ASCII)
-- No volume/capacity information
-- **No alarm byte** - uses error codes instead
-
-> **BTP7 Attribution**: The BTP7 format was reverse-engineered and documented by [atillack](https://github.com/atillack/victron-seelevel-python/tree/btp7_support). This implementation incorporates their findings.
+- **Byte 3-10**: Tank Level / State in the following order:
+	- Fresh1, Grey1, Black1, Fresh2, Grey2, Black2, Grey3, LPG, 1 byte per tank.
+	- 0 - 100 indicates level, values above 100 are tank exceptions:
+		- **101**: Short Circuit
+		- **102**: Open / No response
+		- **103**: Bitcount error
+		- **104**: Configured as non stacked but received stacked data
+		- **105**: Stacked, missing bottom sender data
+		- **106**: Stacked, missing top sender data
+		- **108**: Bad Checksum
+		- **110**: Tank disabled
+		- **111**: Tank init 
 
 ### Sensor Numbers
 
-#### 709-BT/BTP3 (0x0131) - One Sensor Per Packet
-
-| Number | Sensor Type |
-|--------|-------------|
-| 0 | Fresh Water |
-| 1 | Black Water (displayed as "Waste Water") |
-| 2 | Gray Water |
-| 3 | LPG |
-| 4 | LPG 2 |
-| 5 | Galley Water |
-| 6 | Galley Water 2 |
-| 7 | Temperature |
-| 8 | Temperature 2 |
-| 9 | Temperature 3 |
-| 10 | Temperature 4 |
-| 11 | Chemical |
-| 12 | Chemical 2 |
-| 13 | Battery (voltage × 10) |
-
-#### 709-BTP7 (0x0CC0) - All Sensors in One Packet
-
-| Byte | Sensor Type |
-|------|-------------|
-| 3 | Fresh Water 1 |
-| 4 | Gray Water 1 |
-| 5 | Black Water 1 |
-| 6 | Fresh Water 2 |
-| 7 | Gray Water 2 |
-| 8 | Black Water 2 |
-| 9 | Gray Water 3 |
-| 10 | LPG |
-| 11 | Battery (voltage × 10) |
+| Number | Sensor Type (0x0131)| Sensor Type (0x0CC0) |
+|--------|---------------------|----------------------|
+| 0 | Fresh Water | Fresh Water |
+| 1 | Black Water  | Gray Water |
+| 2 | Gray Water | Black Water |
+| 3 | LPG | Fresh Water 2|
+| 4 | LPG 2 | Gray Water 2|
+| 5 | Galley Water | Black Water 2|
+| 6 | Galley Water 2 | Gray Water 3|
+| 7 | Temperature | LPG |
+| 8 | Temperature 2 | Battery (voltage × 10)|
+| 9 | Temperature 3 | - |
+| 10 | Temperature 4 | - |
+| 11 | Chemical | - |
+| 12 | Chemical 2 | - |
+| 13 | Battery (voltage × 10) | - |
 
 ### Status Codes
 
-#### 709-BT/BTP3 Status Codes
-
-In the Sensor Data field (bytes 4-6):
+For the Cypress (0x0131) version, in the Sensor Data field (bytes 4-6):
 - **"OPN"**: Sensor open/disconnected (device not created)
 - **"ERR"**: Sensor error (device shown with error status)
 - **Numeric**: Actual sensor reading
 
-In the Alarm field (byte 13):
-- **'0'**: No alarm
-- **'1'-'9'**: Alarm states (specific meanings not documented)
-
-#### 709-BTP7 Status Codes
-
-Values in sensor bytes (3-11) for tank sensors:
-- **0-100**: Tank level percentage (or battery voltage × 10 for byte 11)
+For the newer 0x0CC0 version, values above 100 for tank sensors are exceptions:
 - **101**: Short Circuit
 - **102**: Open / No response
 - **103**: Bitcount error
-- **104**: Configured as non-stacked but received stacked data
+- **104**: Configured as non stacked but received stacked data
 - **105**: Stacked, missing bottom sender data
 - **106**: Stacked, missing top sender data
 - **108**: Bad Checksum
 - **110**: Tank disabled
-- **111**: Tank initialization
-
-**Note**: BTP7 format does **not** have a separate alarm byte. Error conditions are indicated by status codes > 100.
-
-### Alarm Support Comparison
-
-| Feature | 709-BT/BTP3 (0x0131) | 709-BTP7 (0x0CC0) |
-|---------|----------------------|-------------------|
-| **Alarm Byte** | ✅ Yes (byte 13) | ❌ No |
-| **Alarm Values** | '0'-'9' (ASCII) | N/A |
-| **Error Reporting** | "OPN", "ERR" strings | Status codes 101-111 |
-| **DBus /Alarm Path** | ✅ Set from byte 13 | ❌ Not available |
-| **Error Detection** | Separate from data | Integrated in value |
-
-**709-BT/BTP3 Alarm Behavior**:
-- Byte 13 contains alarm state as ASCII digit
-- '0' = no alarm, '1'-'9' = various alarm states
-- Alarm state is published to DBus `/Alarm` path
-- Specific meanings of alarm values 1-9 are not publicly documented
-
-**709-BTP7 Error Behavior**:
-- No dedicated alarm byte in the protocol
-- Error conditions indicated by values > 100 in sensor data
-- Sensors with errors are logged but not created in DBus
-- Different error codes indicate specific sensor faults
-
-> **Note on BTP7 Alarms**: The official [SeeLeveL RV 2.0 app](https://play.google.com/store/apps/details?id=com.seelevelrvfinal) advertises alarm support for both 709-BTP3 and 709-BTP7 models. However, no alarm byte has been identified in BTP7 BLE packets. The app likely generates alarms client-side based on user-configured thresholds, or alarms may be triggered by error codes (101-111). Further investigation needed.
+- **111**: Tank init 
 
 ### Unit Conversions
 
@@ -486,30 +400,6 @@ Values in sensor bytes (3-11) for tank sensors:
 **Note**: Sensor 1 (Black Water) is displayed as "Waste Water" but uses `FLUID_TYPE_BLACK_WATER` (5) for Victron compatibility.
 
 ---
-
-## Acknowledgments
-
-### BTP7 Reverse Engineering
-The 709-BTP7 binary format support was made possible by reverse engineering work from [atillack](https://github.com/atillack). Their [btp7_support branch](https://github.com/atillack/victron-seelevel-python/tree/btp7_support) provided critical insights into:
-- Manufacturer ID 0x0CC0 identification
-- Binary packet format (vs ASCII in BT/BTP3)
-- All 9 sensor positions in single packet
-- Error code meanings (101-111)
-- Sensor mapping for multiple tanks of same type
-
-Without this work, BTP7 support would not have been possible as no official documentation exists for this format.
-
-### 709-BT/BTP3 Format
-The 709-BT/BTP3 format is based on the "Garnet 709BT BLE Technical Document" (internal, non-public) as referenced in the [Victron Community Forums](https://community.victronenergy.com/t/seelevel-ii-bluetooth-integration-for-709-btp3-in-cerbo-gx-mk2/40553).
-
-### Official App Reference
-The official [SeeLeveL RV 2.0 app](https://play.google.com/store/apps/details?id=com.seelevelrvfinal) by Garnet Instruments supports both 709-BTP3 and 709-BTP7 models. The app implements:
-- Real-time tank monitoring via Bluetooth
-- Customizable high/low level alarms
-- Tank renaming and color customization
-- Support for both device formats
-
-While the app's implementation details are proprietary, its existence confirms both protocol variants are actively supported by the manufacturer.
 
 ## License
 

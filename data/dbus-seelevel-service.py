@@ -33,23 +33,23 @@ from typing import Dict
 
 from gi.repository import GLib
 
-MFG_ID_SEELEVEL = 305  # 709-BT/BTP3 (Cypress Semiconductor) - ASCII format
-MFG_ID_SEELEVEL_BTP7 = 3264  # 709-BTP7 - Binary format
+MFG_ID_CYPRESS = 305 # 709-BTP3
+MFG_ID_SEELEVEL = 3264 # 709-BTP7
+
+STATUS_SEELEVEL = {
+                   101: "Short Circuit",
+                   102: "Open",
+                   103: "Bitcount error",
+                   104: "Configured as non stacked but received stacked data",
+                   105: "Stacked, missing bottom sender data",
+                   106: "Stacked, missing top sender data",
+                   108: "Bad Checksum",
+                   110: "Tank disabled",
+                   111: "Tank init"
+                  }
+
 CONFIG_DIR = "/data/seelevel"
 HEARTBEAT_INTERVAL = 300  # 5 minutes
-
-# BTP7 error codes (values > 100 for tank sensors)
-BTP7_STATUS_CODES = {
-    101: "Short Circuit",
-    102: "Open",
-    103: "Bitcount error",
-    104: "Configured as non stacked but received stacked data",
-    105: "Stacked, missing bottom sender data",
-    106: "Stacked, missing top sender data",
-    108: "Bad Checksum",
-    110: "Tank disabled",
-    111: "Tank init"
-}
 
 
 class SeeLevelService:
@@ -62,7 +62,6 @@ class SeeLevelService:
         self.last_value: Dict[str, int] = {}  # sensor_key -> last value seen
         self.current_mac = None
         self.current_data = None
-        self.current_device_type = None  # 'BT' or 'BTP7'
         self.btmon_proc = None
         
         self.load_config()
@@ -91,6 +90,7 @@ class SeeLevelService:
                     continue
                 
                 mac = config['mac']
+                sensor_type_id = config['sensor_type_id']
                 sensor_num = config['sensor_num']
                 sensor_key = f"{mac}_{sensor_num}"
                 
@@ -106,7 +106,7 @@ class SeeLevelService:
         
         logging.info(f"Loaded {len(self.configured_sensors)} enabled sensor(s)")
     
-    def start_sensor_process(self, mac: str, sensor_num: int, config: dict):
+    def start_sensor_process(self, mac: str, sensor_type_id: int, sensor_num: int, config: dict):
         """Start a sensor process"""
         sensor_key = f"{mac}_{sensor_num}"
         
@@ -120,7 +120,7 @@ class SeeLevelService:
         logging.info(f"Starting process for {custom_name}")
         
         # Build command with optional tank parameters
-        cmd = ['python3', '/data/dbus-seelevel-sensor.py', mac, str(sensor_num), custom_name]
+        cmd = ['python3', '/data/dbus-seelevel-sensor.py', mac, str(sensor_type_id), str(sensor_num), custom_name]
         
         # Add tank-specific parameters if present
         if 'tank_capacity_gallons' in config:
@@ -130,15 +130,15 @@ class SeeLevelService:
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=None,  # Inherit parent's stderr so multilog captures it
+            stderr=subprocess.PIPE,
             universal_newlines=True,
             bufsize=1
         )
         
         self.sensor_processes[sensor_key] = proc
 
-    def send_update(self, sensor_key: str, sensor_value: int, alarm_state: int = None):
-        """Send update to sensor process (value and optional alarm)"""
+    def send_update(self, sensor_key: str, sensor_value: int):
+        """Send update to sensor process (just the value)"""
         if sensor_key not in self.sensor_processes:
             return
         
@@ -147,11 +147,7 @@ class SeeLevelService:
             return  # Process died
         
         try:
-            # Send as "value:alarm" or just "value" if no alarm
-            if alarm_state is not None:
-                proc.stdin.write(f"{sensor_value}:{alarm_state}\n")
-            else:
-                proc.stdin.write(f"{sensor_value}\n")
+            proc.stdin.write(f"{sensor_value}\n")
             proc.stdin.flush()
         except Exception as e:
             logging.error(f"Failed to write to {sensor_key}: {e}")
@@ -166,142 +162,108 @@ class SeeLevelService:
             self.current_mac = mac_match.group(1)
             return
         
-        # Match 709-BT/BTP3 (Cypress Semiconductor, ID 305)
-        company_match = re.search(r'Company: Cypress Semiconductor \((\d+)\)', line)
-        if company_match and int(company_match.group(1)) == MFG_ID_SEELEVEL:
+        company_match = re.search(r'Company: .* \((\d+)\)', line)
+        if company_match and (int(company_match.group(1)) == MFG_ID_CYPRESS or int(company_match.group(1)) == MFG_ID_SEELEVEL):
+            if (int(company_match.group(1)) == MFG_ID_SEELEVEL):
+                self.sensor_type_id = 1
+            else:
+                self.sensor_type_id = 0
             self.current_data = "pending"
-            self.current_device_type = "BT"
             return
         
-        # Match 709-BTP7 (not assigned, ID 3264)
-        company_match = re.search(r'Company: not assigned \((\d+)\)', line)
-        if company_match and int(company_match.group(1)) == MFG_ID_SEELEVEL_BTP7:
-            self.current_data = "pending"
-            self.current_device_type = "BTP7"
-            return
-        
-        if self.current_data == "pending" and self.current_mac and self.current_device_type:
+        if self.current_data == "pending" and self.current_mac:
             data_match = re.search(r'Data: ([0-9a-f]+)', line)
             if data_match:
                 hex_data = data_match.group(1)
-                self.process_seelevel_data(self.current_mac, hex_data, self.current_device_type)
+                self.process_seelevel_data(self.current_mac, hex_data, self.sensor_type_id)
                 self.current_data = None
-                self.current_device_type = None
 
-    def process_seelevel_data(self, mac: str, hex_data: str, device_type: str):
+    def process_seelevel_data(self, mac: str, hex_data: str, sensor_type_id: int):
         """Process SeeLevel data and decide if update needed"""
-        try:
-            data = bytes.fromhex(hex_data)
-            if len(data) < 14:
-                return
-            
-            if device_type == "BT":
-                # 709-BT/BTP3: ASCII format, one sensor per packet
-                self.process_bt_packet(mac, data)
-            elif device_type == "BTP7":
-                # 709-BTP7: Binary format, all sensors in one packet
-                self.process_btp7_packet(mac, data)
-            
-        except Exception as e:
-            logging.error(f"Process error: {e}")
-    
-    def process_bt_packet(self, mac: str, data: bytes):
-        """Process 709-BT/BTP3 ASCII format packet"""
-        sensor_num = data[3]
-        sensor_key = f"{mac}_{sensor_num}"
-        
-        # Only process configured sensors
-        if sensor_key not in self.configured_sensors:
+        data = bytes.fromhex(hex_data)
+        if len(data) < 14:
             return
         
-        data_str = data[4:7].decode('ascii', errors='ignore').strip()
-        
-        # Skip OPN (disconnected)
-        if data_str == "OPN":
-            return
-        
-        config = self.configured_sensors[sensor_key]
-        
-        # Parse sensor value
-        try:
-            sensor_value = int(data_str)
-        except ValueError:
-            if data_str == "ERR":
-                logging.info(f"{config['custom_name']}: Error")
-            return
-        
-        # Parse alarm byte (byte 13, ASCII digit 0-9)
-        alarm_state = None
-        if len(data) >= 14 and data[13] >= ord('0') and data[13] <= ord('9'):
-            alarm_state = data[13] - ord('0')
-        
-        self.update_sensor(mac, sensor_num, sensor_value, config, alarm_state)
-    
-    def process_btp7_packet(self, mac: str, data: bytes):
-        """Process 709-BTP7 binary format packet (all sensors in bytes 3-11)"""
-        # BTP7 sensor mapping (bytes 3-11):
-        # 0: Fresh1, 1: Grey1, 2: Black1, 3: Fresh2, 4: Grey2, 5: Black2, 6: Grey3, 7: LPG, 8: Battery
-        for sensor_num in range(9):
+        if sensor_type_id == 0:
+            sensor_num = data[3]
             sensor_key = f"{mac}_{sensor_num}"
-            
+        
             # Only process configured sensors
             if sensor_key not in self.configured_sensors:
-                continue
+                return
             
-            sensor_value = data[3 + sensor_num]
+            data_str = data[4:7].decode('ascii', errors='ignore').strip()
+            
+            # Skip OPN (disconnected)
+            if data_str == "OPN":
+                return
+            
             config = self.configured_sensors[sensor_key]
             
-            # Check for error codes (values > 100 for tanks, sensor_num < 8)
-            if sensor_num < 8 and sensor_value > 100:
-                if sensor_value in BTP7_STATUS_CODES:
-                    logging.info(f"{config['custom_name']}: {BTP7_STATUS_CODES[sensor_value]}")
-                else:
-                    logging.info(f"{config['custom_name']}: Unknown Error #{sensor_value}")
-                continue
+            # Parse sensor value
+            try:
+                sensor_value = int(data_str)
+            except ValueError:
+                if data_str == "ERR":
+                    logging.info(f"{config['custom_name']}: Error")
+                return
             
-            self.update_sensor(mac, sensor_num, sensor_value, config, alarm_state=None)
-    
-    def update_sensor(self, mac: str, sensor_num: int, sensor_value: int, config: dict, alarm_state: int = None):
-        """Update a sensor if value changed or heartbeat needed"""
-        sensor_key = f"{mac}_{sensor_num}"
-        
-        # Check if we should send update
-        now = time.time()
-        value_changed = sensor_key not in self.last_value or self.last_value[sensor_key] != sensor_value
-        time_for_heartbeat = (sensor_key not in self.last_update) or (now - self.last_update[sensor_key] >= HEARTBEAT_INTERVAL)
-        
-        if value_changed or time_for_heartbeat:
-            # Start process if needed
-            if sensor_key not in self.sensor_processes:
-                self.start_sensor_process(mac, sensor_num, config)
-            
-            # Send update
-            self.send_update(sensor_key, sensor_value, alarm_state)
-            
-            # Log only on value changes
-            if value_changed:
-                # Build alarm suffix if present
-                alarm_suffix = f" [ALARM {alarm_state}]" if alarm_state and alarm_state > 0 else ""
-                
-                # BT: sensor 13 is battery, BTP7: sensor 8 is battery
-                if sensor_num in [8, 13]:  # Battery
-                    voltage = sensor_value / 10.0
-                    logging.info(f"{config['custom_name']}: {voltage}V (changed){alarm_suffix}")
-                elif sensor_num in [7, 8, 9, 10]:  # Temperature (BT only)
-                    temp_c = (sensor_value - 32.0) * 5.0 / 9.0
-                    logging.info(f"{config['custom_name']}: {temp_c:.1f}°C (changed){alarm_suffix}")
-                else:  # Tank
-                    tank_capacity_gallons = config.get('tank_capacity_gallons', 0)
-                    if tank_capacity_gallons > 0:
-                        capacity_m3 = round(tank_capacity_gallons * 0.00378541, 3)
-                        remaining_m3 = round(capacity_m3 * sensor_value / 100.0, 3)
-                        logging.info(f"{config['custom_name']}: {sensor_value}% ({remaining_m3}/{capacity_m3} m³) (changed){alarm_suffix}")
+            self.process_sensor_update(mac, sensor_key, sensor_value, sensor_type_id, sensor_num)
+        else:
+            for sensor_num in range(9):
+                sensor_key = f"{mac}_{sensor_num}"
+                # Only process configured sensors
+                if sensor_key not in self.configured_sensors:
+                    continue
+                sensor_value = data[sensor_num+3]
+                if sensor_num < 8 and sensor_value > 100:
+                    if sensor_value in STATUS_SEELEVEL:
+                        logging.info(f"{config['custom_name']}: {STATUS_SEELEVEL[sensor_value]}")
                     else:
-                        logging.info(f"{config['custom_name']}: {sensor_value}% (changed){alarm_suffix}")
+                        logging.info(f"{config['custom_name']}: Unknown Error #{sensor_value}")
+                    return
+                self.process_sensor_update(mac, sensor_key, sensor_value, sensor_type_id, sensor_num)
+
+    def process_sensor_update(self, mac: str, sensor_key: str, sensor_value: int, sensor_type_id: int, sensor_num: int):
+        """Process SeeLevel data and decide if update needed"""
+        try:
+            config = self.configured_sensors[sensor_key]
+            # Check if we should send update
+            now = time.time()
+            value_changed = sensor_key not in self.last_value or self.last_value[sensor_key] != sensor_value
+            time_for_heartbeat = (sensor_key not in self.last_update) or (now - self.last_update[sensor_key] >= HEARTBEAT_INTERVAL)
             
-            # Track last update time and value
-            self.last_update[sensor_key] = now
-            self.last_value[sensor_key] = sensor_value
+            if value_changed or time_for_heartbeat:
+                # Start process if needed
+                if sensor_key not in self.sensor_processes:
+                    self.start_sensor_process(mac, sensor_type_id, sensor_num, config)
+                
+                # Send update
+                self.send_update(sensor_key, sensor_value)
+                
+                # Log only on value changes
+                if value_changed:
+                    if (sensor_type_id == 0 and sensor_num == 13) or (sensor_type_id == 1 and sensor_num == 8):  # Battery
+                        voltage = sensor_value / 10.0
+                        logging.info(f"{config['custom_name']}: {voltage}V (changed)")
+                    elif sensor_type_id == 0 and sensor_num in [7, 8, 9, 10]:  # Temperature
+                        temp_c = (sensor_value - 32.0) * 5.0 / 9.0
+                        logging.info(f"{config['custom_name']}: {temp_c:.1f}°C (changed)")
+                    else:  # Tank
+                        tank_capacity_gallons = config.get('tank_capacity_gallons', 0)
+                        if tank_capacity_gallons > 0:
+                            capacity_m3 = round(tank_capacity_gallons * 0.00378541, 3)
+                            remaining_m3 = round(capacity_m3 * sensor_value / 100.0, 3)
+                            logging.info(f"{config['custom_name']}: {sensor_value}% ({remaining_m3}/{capacity_m3} m³) (changed)")
+                        else:
+                            logging.info(f"{config['custom_name']}: {sensor_value}% (changed)")
+                
+                # Track last update time and value
+                self.last_update[sensor_key] = now
+                self.last_value[sensor_key] = sensor_value            
+        
+        except Exception as e:
+            logging.error(f"Process error: {e}")
 
     def process_btmon_output(self, source, condition):
         """GLib callback"""
