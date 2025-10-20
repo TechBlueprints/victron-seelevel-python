@@ -120,8 +120,11 @@ class SeeLevelDiscovery:
                 self.create_config(mac, sensor_type_id, sensor_num, is_disconnected)
             else:
                 print()  # New line after scanning dots
-                for sensor_num in range(9):
-                    self.create_config(mac, sensor_type_id, sensor_num, data[sensor_num+3] == 110 and sensor_num < 8)
+                # BTP7: Bytes 3-10 are 8 tank sensors, byte 11 is battery
+                for sensor_num in range(8):
+                    self.create_config(mac, sensor_type_id, sensor_num, data[sensor_num+3] == 110)
+                # Battery sensor (byte 11, sensor_num 8)
+                self.create_config(mac, sensor_type_id, 8, False)  # Battery is never "disconnected"
             
             # Reset timer AFTER user finishes configuring (in create_config)
             
