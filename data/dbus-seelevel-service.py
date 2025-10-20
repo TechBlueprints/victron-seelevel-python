@@ -137,8 +137,8 @@ class SeeLevelService:
         
         self.sensor_processes[sensor_key] = proc
 
-    def send_update(self, sensor_key: str, sensor_value: int):
-        """Send update to sensor process (just the value)"""
+    def send_update(self, sensor_key: str, sensor_value: int, alarm_state: int = None):
+        """Send update to sensor process (value and optional alarm)"""
         if sensor_key not in self.sensor_processes:
             return
         
@@ -147,7 +147,11 @@ class SeeLevelService:
             return  # Process died
         
         try:
-            proc.stdin.write(f"{sensor_value}\n")
+            # Send as "value:alarm" or just "value" if no alarm
+            if alarm_state is not None:
+                proc.stdin.write(f"{sensor_value}:{alarm_state}\n")
+            else:
+                proc.stdin.write(f"{sensor_value}\n")
             proc.stdin.flush()
         except Exception as e:
             logging.error(f"Failed to write to {sensor_key}: {e}")
@@ -226,7 +230,12 @@ class SeeLevelService:
                 logging.info(f"{config['custom_name']}: Error")
             return
         
-        self.update_sensor(mac, sensor_num, sensor_value, config)
+        # Parse alarm byte (byte 13, ASCII digit 0-9)
+        alarm_state = None
+        if len(data) >= 14 and data[13] >= ord('0') and data[13] <= ord('9'):
+            alarm_state = data[13] - ord('0')
+        
+        self.update_sensor(mac, sensor_num, sensor_value, config, alarm_state)
     
     def process_btp7_packet(self, mac: str, data: bytes):
         """Process 709-BTP7 binary format packet (all sensors in bytes 3-11)"""
@@ -250,9 +259,9 @@ class SeeLevelService:
                     logging.info(f"{config['custom_name']}: Unknown Error #{sensor_value}")
                 continue
             
-            self.update_sensor(mac, sensor_num, sensor_value, config)
+            self.update_sensor(mac, sensor_num, sensor_value, config, alarm_state=None)
     
-    def update_sensor(self, mac: str, sensor_num: int, sensor_value: int, config: dict):
+    def update_sensor(self, mac: str, sensor_num: int, sensor_value: int, config: dict, alarm_state: int = None):
         """Update a sensor if value changed or heartbeat needed"""
         sensor_key = f"{mac}_{sensor_num}"
         
@@ -267,7 +276,7 @@ class SeeLevelService:
                 self.start_sensor_process(mac, sensor_num, config)
             
             # Send update
-            self.send_update(sensor_key, sensor_value)
+            self.send_update(sensor_key, sensor_value, alarm_state)
             
             # Log only on value changes
             if value_changed:
