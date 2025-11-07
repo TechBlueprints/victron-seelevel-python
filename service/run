@@ -2,5 +2,5 @@
 echo "*** starting dbus-seelevel ***"
 exec 2>&1
 . /etc/profile.d/profile.sh
-exec softlimit -d 100000000 -s 1000000 -a 100000000 python3 /data/dbus-seelevel-service.py
+exec softlimit -d 100000000 -s 1000000 -a 100000000 python3 /data/apps/dbus-seelevel/data/dbus-seelevel-service.py
 

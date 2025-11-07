@@ -48,7 +48,7 @@ STATUS_SEELEVEL = {
                    111: "Tank init"
                   }
 
-CONFIG_DIR = "/data/seelevel"
+CONFIG_DIR = "/data/apps/dbus-seelevel/config"
 HEARTBEAT_INTERVAL = 300  # 5 minutes
 
 
@@ -120,7 +120,7 @@ class SeeLevelService:
         logging.info(f"Starting process for {custom_name}")
         
         # Build command with optional tank parameters
-        cmd = ['python3', '/data/dbus-seelevel-sensor.py', mac, str(sensor_type_id), str(sensor_num), custom_name]
+        cmd = ['python3', '/data/apps/dbus-seelevel/data/dbus-seelevel-sensor.py', mac, str(sensor_type_id), str(sensor_num), custom_name]
         
         # Add tank-specific parameters if present
         if 'tank_capacity_gallons' in config:

@@ -45,11 +45,10 @@ victron-seelevel-python/
 ## Quick Start
 
 1. [Enable SSH](#enable-ssh-access) on your Cerbo GX
-2. Copy scripts: `scp data/*.py root@<cerbo-ip>:/data/`
-3. Run discovery: `ssh root@<cerbo-ip> 'python3 /data/dbus-seelevel-discover.py'`
-4. Install service: `scp -r service root@<cerbo-ip>:/opt/victronenergy/service/dbus-seelevel`
-5. Create symlink: `ssh root@<cerbo-ip> 'ln -sf /opt/victronenergy/service/dbus-seelevel /service/dbus-seelevel'`
-6. Verify running: `ssh root@<cerbo-ip> 'svstat /service/dbus-seelevel'`
+2. Copy files: `scp -r data service root@<cerbo-ip>:/data/apps/dbus-seelevel/`
+3. Run discovery: `ssh root@<cerbo-ip> 'python3 /data/apps/dbus-seelevel/data/apps/dbus-seelevel/data/dbus-seelevel-discover.py'`
+4. Create symlink: `ssh root@<cerbo-ip> 'ln -sf /data/apps/dbus-seelevel/service /service/dbus-seelevel'`
+5. Verify running: `ssh root@<cerbo-ip> 'svstat /service/dbus-seelevel'`
 
 See the [Installation Guide](#installation-guide) below for detailed steps.
 
@@ -92,10 +91,12 @@ Replace `<cerbo-ip-address>` with your Cerbo's IP address (e.g., `192.168.1.100`
 
 ### 2. Copy the Python Scripts
 
-From your local machine (in the `victron-seelevel-python` directory), copy the three required Python scripts to the Cerbo:
+From your local machine (in the `victron-seelevel-python` directory), copy the required files to the Cerbo:
 
 ```bash
-scp data/*.py root@<cerbo-ip-address>:/data/
+# Create directory and copy files
+ssh root@<cerbo-ip-address> 'mkdir -p /data/apps/dbus-seelevel'
+scp -r data service root@<cerbo-ip-address>:/data/apps/dbus-seelevel/
 ```
 
 ### 3. Make Scripts Executable
@@ -103,13 +104,15 @@ scp data/*.py root@<cerbo-ip-address>:/data/
 On the Cerbo GX:
 
 ```bash
-chmod +x /data/dbus-seelevel-*.py
+chmod +x /data/apps/dbus-seelevel/data/apps/dbus-seelevel/data/dbus-seelevel-*.py
+chmod +x /data/apps/dbus-seelevel/service/run
+chmod +x /data/apps/dbus-seelevel/service/log/run
 ```
 
 ### 4. Run Discovery to Configure Your Sensors
 
 ```bash
-python3 /data/dbus-seelevel-discover.py
+python3 /data/apps/dbus-seelevel/data/apps/dbus-seelevel/data/dbus-seelevel-discover.py
 ```
 
 This interactive script will:
@@ -118,7 +121,7 @@ This interactive script will:
   - Choose whether to add it (yes/no/disabled)
   - Set a custom name
   - For tanks: Set capacity in gallons
-- Create configuration files in `/data/seelevel/`
+- Create configuration files in `/data/apps/dbus-seelevel/config/`
 - Ask if you want to continue scanning after each sensor
 
 **Tips:**
@@ -133,7 +136,7 @@ This interactive script will:
 Before setting it up as a permanent service, test it manually:
 
 ```bash
-python3 /data/dbus-seelevel-service.py
+python3 /data/apps/dbus-seelevel/data/dbus-seelevel-service.py
 ```
 
 You should see output like:
@@ -192,17 +195,17 @@ Press Ctrl+C to stop watching the logs.
 
 ## File Locations
 
-- **Scripts**: `/data/dbus-seelevel-*.py`
-- **Configuration**: `/data/seelevel/*.json`
+- **Scripts**: `/data/apps/dbus-seelevel/data/dbus-seelevel-*.py`
+- **Configuration**: `/data/apps/dbus-seelevel/config/*.json`
 - **Service**: `/opt/victronenergy/service/dbus-seelevel/` (persists across reboots)
 - **Service Symlink**: `/service/dbus-seelevel/` (automatically recreated on boot)
 - **Logs**: `/var/log/dbus-seelevel/`
 
 ## Configuration Files
 
-Each sensor gets its own JSON configuration file in `/data/seelevel/`. Example:
+Each sensor gets its own JSON configuration file in `/data/apps/dbus-seelevel/config/`. Example:
 
-**`/data/seelevel/fresh-water.json`:**
+**`/data/apps/dbus-seelevel/config/fresh-water.json`:**
 ```json
 {
   "mac": "00:A0:50:8D:95:69",
@@ -248,13 +251,13 @@ The service will:
 
 1. Check the service is running: `svstat /service/dbus-seelevel`
 2. Check the logs: `tail -f /var/log/dbus-seelevel/current`
-3. Verify configuration files exist: `ls -la /data/seelevel/`
+3. Verify configuration files exist: `ls -la /data/apps/dbus-seelevel/config/`
 4. Ensure sensors are enabled in config files
 5. Check Bluetooth is working: `btmon` (Ctrl+C to stop)
 
 ### Wrong Values Displayed
 
-1. Check the sensor configuration in `/data/seelevel/*.json`
+1. Check the sensor configuration in `/data/apps/dbus-seelevel/config/*.json`
 2. For wrong capacity, adjust `tank_capacity_gallons`
 3. Restart service after changes: `svc -t /service/dbus-seelevel`
 
@@ -262,15 +265,15 @@ The service will:
 
 1. Check the run script is executable: `ls -la /service/dbus-seelevel/run`
 2. Check for Python errors: `tail -f /var/log/dbus-seelevel/current`
-3. Verify scripts exist: `ls -la /data/dbus-seelevel-*.py`
-4. Test manually: `python3 /data/dbus-seelevel-service.py`
+3. Verify scripts exist: `ls -la /data/apps/dbus-seelevel/data/dbus-seelevel-*.py`
+4. Test manually: `python3 /data/apps/dbus-seelevel/data/dbus-seelevel-service.py`
 
 ### Re-running Discovery
 
 You can re-run discovery at any time:
 
 ```bash
-python3 /data/dbus-seelevel-discover.py
+python3 /data/apps/dbus-seelevel/data/dbus-seelevel-discover.py
 ```
 
 It will detect existing configurations and ask if you want to reconfigure them.
@@ -287,8 +290,8 @@ svc -d /service/dbus-seelevel
 rm -rf /service/dbus-seelevel
 
 # Remove the scripts and configs (optional)
-rm -f /data/dbus-seelevel-*.py
-rm -rf /data/seelevel
+rm -f /data/apps/dbus-seelevel/data/dbus-seelevel-*.py
+rm -rf /data/apps/dbus-seelevel/config
 
 # Remove the logs (optional)
 rm -rf /var/log/dbus-seelevel
@@ -298,7 +301,7 @@ rm -rf /var/log/dbus-seelevel
 
 For issues or questions:
 - Check the logs: `/var/log/dbus-seelevel/current`
-- Review configuration files: `/data/seelevel/*.json`
+- Review configuration files: `/data/apps/dbus-seelevel/config/*.json`
 - Verify Bluetooth is working on your Cerbo GX
 - Ensure your SeeLevel 709-BT is powered on and broadcasting
 

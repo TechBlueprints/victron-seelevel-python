@@ -57,7 +57,7 @@ STATUS_SEELEVEL = {
                    111: "Tank init"
                   }
 
-CONFIG_DIR = "/data/seelevel"
+CONFIG_DIR = "/data/apps/dbus-seelevel/config"
 
 
 class SeeLevelDiscovery:
