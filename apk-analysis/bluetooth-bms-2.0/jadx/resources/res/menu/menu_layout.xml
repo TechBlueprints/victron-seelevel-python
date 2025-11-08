@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:icon="@mipmap/icon_laug_select"
+        android:id="@+id/menu_english"
+        android:title="@string/English"/>
+    <item
+        android:id="@+id/menu_france"
+        android:title="@string/Grench"/>
+</menu>

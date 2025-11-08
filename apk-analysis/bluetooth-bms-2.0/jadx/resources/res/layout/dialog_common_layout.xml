@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:background="#00ffffff"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+    <LinearLayout
+        android:gravity="center"
+        android:orientation="vertical"
+        android:background="@drawable/shape_btn_green_grey_radio_15_bg"
+        android:layout_width="320dp"
+        android:layout_height="154dp">
+        <TextView
+            android:textSize="18sp"
+            android:textColor="#ffffff"
+            android:id="@+id/tv_message"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="30dp"
+            android:layout_marginBottom="30dp"
+            android:text="Did you end the exercise？"
+            android:layout_centerHorizontal="true"
+            android:fontFamily="sans-serif-medium"/>
+        <include
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="20dp"
+            android:layout_alignParentBottom="true"
+            layout="@layout/dialog_bottom_layout"/>
+    </LinearLayout>
+</LinearLayout>

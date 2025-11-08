@@ -424,10 +424,15 @@ class SeeLevelService:
         
         # Schedule async event loop processing
         def process_async():
-            loop.run_until_complete(asyncio.sleep(0))  # Process pending tasks
+            # Process one iteration of the asyncio event loop
+            # This allows async tasks to make progress without blocking GLib
+            if loop.is_running():
+                return True
+            loop.stop()
+            loop.run_forever()
             return True  # Keep repeating
         
-        GLib.timeout_add(100, process_async)  # Process every 100ms
+        GLib.idle_add(process_async)  # Process as often as possible
         
         logging.info("Service running...")
         
