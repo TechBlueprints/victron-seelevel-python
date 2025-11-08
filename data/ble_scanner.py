@@ -150,6 +150,10 @@ class DBusAdvertisementScanner(BLEScanner):
     def is_available(self) -> bool:
         """Check if dbus-ble-advertisements service is available and healthy"""
         try:
+            # Ensure D-Bus mainloop is set up (safe to call multiple times)
+            from dbus.mainloop.glib import DBusGMainLoop
+            DBusGMainLoop(set_as_default=True)
+            
             bus = dbus.SystemBus()
             
             # Check if service exists
