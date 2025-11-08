@@ -29,9 +29,13 @@ import signal
 import json
 import os
 import glob
+import asyncio
 from typing import Dict
 
 from gi.repository import GLib
+
+# Import pluggable BLE scanner
+from ble_scanner import create_scanner, BLEScanner
 
 MFG_ID_CYPRESS = 305 # 709-BTP3
 MFG_ID_SEELEVEL = 3264 # 709-BTP7
@@ -60,9 +64,7 @@ class SeeLevelService:
         self.configured_sensors: Dict[str, dict] = {}
         self.last_update: Dict[str, float] = {}  # sensor_key -> timestamp of last update sent
         self.last_value: Dict[str, int] = {}  # sensor_key -> last value seen
-        self.current_mac = None
-        self.current_data = None
-        self.btmon_proc = None
+        self.ble_scanner = None
         
         self.load_config()
         
@@ -156,8 +158,32 @@ class SeeLevelService:
         except Exception as e:
             logging.error(f"Failed to write to {sensor_key}: {e}")
 
+    def advertisement_callback(self, mac: str, manufacturer_id: int, data: bytes, rssi: int, interface: str, name: str):
+        """
+        Called when a BLE advertisement is received
+        
+        This callback uses the standardized format from our pluggable scanner interface.
+        Args:
+            mac: MAC address (uppercase, with colons)
+            manufacturer_id: Manufacturer ID from advertisement
+            data: Raw manufacturer data bytes
+            rssi: Signal strength
+            interface: HCI interface (e.g., "hci0")
+            name: Device name (empty string if unknown)
+        """
+        # Filter for SeeLevel manufacturer IDs
+        if manufacturer_id not in [MFG_ID_CYPRESS, MFG_ID_SEELEVEL]:
+            return
+        
+        # Determine sensor type ID from manufacturer ID
+        sensor_type_id = 1 if manufacturer_id == MFG_ID_SEELEVEL else 0
+        
+        # Process the advertisement data
+        hex_data = data.hex()
+        self.process_seelevel_data(mac, hex_data, sensor_type_id)
+    
     def parse_btmon_line(self, line: str):
-        """Parse btmon output"""
+        """Parse btmon output - DEPRECATED, kept for fallback mode"""
         line = line.strip()
         
         # Match MAC address - support both "Address:" and "LE Address:"
@@ -331,44 +357,78 @@ class SeeLevelService:
                 except:
                     pass
         
-        # Stop btmon
-        if self.btmon_proc:
-            try:
-                self.btmon_proc.terminate()
-                self.btmon_proc.wait(timeout=1)
-            except:
-                try:
-                    self.btmon_proc.kill()
-                except:
-                    pass
+        # Stop BLE scanner
+        if self.ble_scanner:
+            # For async scanner, we'd need to stop it properly
+            # But since we're using D-Bus or btmon subprocess, just set to None
+            self.ble_scanner = None
         
         sys.exit(0)
+    
+    async def scan_continuously(self):
+        """Continuously scan for BLE advertisements using the best available scanner"""
+        logging.info("Initializing BLE scanner...")
+        
+        try:
+            # Get list of MAC addresses from configured sensors
+            mac_addresses = list(set(config['mac'] for config in self.configured_sensors.values()))
+            
+            # Create scanner with pluggable backend
+            # Prefer D-Bus scanner, fall back to btmon (via Btmon wrapper)
+            # Note: For now, we'll only support D-Bus. btmon support can be added later.
+            self.ble_scanner = create_scanner(
+                advertisement_callback=self.advertisement_callback,
+                service_name="seelevel",
+                manufacturer_ids=[MFG_ID_CYPRESS, MFG_ID_SEELEVEL],  # Both BTP3 and BTP7
+                mac_addresses=mac_addresses,
+                prefer_dbus=True
+            )
+            
+            await self.ble_scanner.start()
+            logging.info("BLE scanner started successfully")
+            
+            # Keep the scanner running
+            while True:
+                await asyncio.sleep(60)  # Keep alive check every minute
+                
+        except Exception as e:
+            logging.error(f"BLE scan error: {e}")
+            raise
+        finally:
+            if self.ble_scanner:
+                try:
+                    await self.ble_scanner.stop()
+                    logging.info("BLE scanner stopped")
+                except:
+                    pass
 
     def run(self):
         """Run the service"""
         signal.signal(signal.SIGINT, self.cleanup)
         signal.signal(signal.SIGTERM, self.cleanup)
         
-        try:
-            self.btmon_proc = subprocess.Popen(
-                ['btmon'],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                universal_newlines=True,
-                bufsize=1
-            )
-            logging.info("Started btmon")
-        except Exception as e:
-            logging.error(f"Failed to start btmon: {e}")
-            return 1
-        
-        GLib.io_add_watch(
-            self.btmon_proc.stdout,
-            GLib.IO_IN | GLib.IO_HUP,
-            self.process_btmon_output
-        )
-        
+        # Set up GLib main loop
         mainloop = GLib.MainLoop()
+        
+        # Create async event loop and integrate with GLib
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Schedule the BLE scanner as a background task
+        def start_ble_scanner():
+            asyncio.ensure_future(self.scan_continuously(), loop=loop)
+            return False  # Don't repeat
+        
+        # Schedule BLE scanner to start after a short delay
+        GLib.idle_add(start_ble_scanner)
+        
+        # Schedule async event loop processing
+        def process_async():
+            loop.run_until_complete(asyncio.sleep(0))  # Process pending tasks
+            return True  # Keep repeating
+        
+        GLib.timeout_add(100, process_async)  # Process every 100ms
+        
         logging.info("Service running...")
         
         try:
