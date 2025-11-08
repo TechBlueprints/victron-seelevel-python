@@ -176,6 +176,13 @@ class DBusAdvertisementScanner(BLEScanner):
         
         logger.info(f"Registering with dbus-ble-advertisements as '{self.service_name}'...")
         
+        # Import GLib D-Bus mainloop integration
+        from dbus.mainloop.glib import DBusGMainLoop
+        
+        # Ensure D-Bus is attached to GLib mainloop
+        # This is safe to call multiple times
+        DBusGMainLoop(set_as_default=True)
+        
         self.bus = dbus.SystemBus()
         bus_name = dbus.service.BusName(f'com.victronenergy.{self.service_name}', self.bus)
         
