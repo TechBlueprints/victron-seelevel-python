@@ -182,32 +182,6 @@ class SeeLevelService:
         hex_data = data.hex()
         self.process_seelevel_data(mac, hex_data, sensor_type_id)
     
-    def parse_btmon_line(self, line: str):
-        """Parse btmon output - DEPRECATED, kept for fallback mode"""
-        line = line.strip()
-        
-        # Match MAC address - support both "Address:" and "LE Address:"
-        mac_match = re.search(r'(?:LE )?Address: ([0-9A-F:]{17})', line)
-        if mac_match:
-            self.current_mac = mac_match.group(1)
-            return
-        
-        company_match = re.search(r'Company: .* \((\d+)\)', line)
-        if company_match and (int(company_match.group(1)) == MFG_ID_CYPRESS or int(company_match.group(1)) == MFG_ID_SEELEVEL):
-            if (int(company_match.group(1)) == MFG_ID_SEELEVEL):
-                self.sensor_type_id = 1
-            else:
-                self.sensor_type_id = 0
-            self.current_data = "pending"
-            return
-        
-        if self.current_data == "pending" and self.current_mac:
-            data_match = re.search(r'Data: ([0-9a-f]+)', line)
-            if data_match:
-                hex_data = data_match.group(1)
-                self.process_seelevel_data(self.current_mac, hex_data, self.sensor_type_id)
-                self.current_data = None
-
     def process_seelevel_data(self, mac: str, hex_data: str, sensor_type_id: int):
         """Process SeeLevel data and decide if update needed"""
         data = bytes.fromhex(hex_data)
@@ -314,20 +288,6 @@ class SeeLevelService:
         except Exception as e:
             logging.error(f"Process error: {e}")
 
-    def process_btmon_output(self, source, condition):
-        """GLib callback"""
-        if condition == GLib.IO_HUP:
-            return False
-        
-        try:
-            line = source.readline()
-            if line:
-                self.parse_btmon_line(line)
-        except:
-            pass
-        
-        return True
-
     def cleanup(self, signum=None, frame=None):
         """Cleanup on exit"""
         logging.info("Shutting down...")
@@ -359,8 +319,7 @@ class SeeLevelService:
         
         # Stop BLE scanner
         if self.ble_scanner:
-            # For async scanner, we'd need to stop it properly
-            # But since we're using D-Bus or btmon subprocess, just set to None
+            # Scanner cleanup handled by stop() method
             self.ble_scanner = None
         
         sys.exit(0)
