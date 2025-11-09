@@ -366,22 +366,19 @@ class SeeLevelService:
         sys.exit(0)
     
     async def scan_continuously(self):
-        """Continuously scan for BLE advertisements using the best available scanner"""
+        """Continuously scan for BLE advertisements using D-Bus router"""
         logging.info("Initializing BLE scanner...")
         
         try:
             # Get list of MAC addresses from configured sensors
             mac_addresses = list(set(config['mac'] for config in self.configured_sensors.values()))
             
-            # Create scanner with pluggable backend
-            # Prefer D-Bus scanner, fall back to btmon (via Btmon wrapper)
-            # Note: For now, we'll only support D-Bus. btmon support can be added later.
+            # Create D-Bus scanner
             self.ble_scanner = create_scanner(
                 advertisement_callback=self.advertisement_callback,
                 service_name="seelevel",
                 manufacturer_ids=[MFG_ID_CYPRESS, MFG_ID_SEELEVEL],  # Both BTP3 and BTP7
-                mac_addresses=mac_addresses,
-                prefer_dbus=True
+                mac_addresses=mac_addresses
             )
             
             await self.ble_scanner.start()
@@ -393,6 +390,8 @@ class SeeLevelService:
                 
         except Exception as e:
             logging.error(f"BLE scan error: {e}")
+            import traceback
+            traceback.print_exc()
             raise
         finally:
             if self.ble_scanner:
@@ -423,16 +422,14 @@ class SeeLevelService:
         GLib.idle_add(start_ble_scanner)
         
         # Schedule async event loop processing
+        # Process asyncio tasks by running all ready callbacks
         def process_async():
-            # Process one iteration of the asyncio event loop
-            # This allows async tasks to make progress without blocking GLib
-            if loop.is_running():
-                return True
-            loop.stop()
+            # Run all callbacks that are ready
+            loop.call_soon(loop.stop)
             loop.run_forever()
             return True  # Keep repeating
         
-        GLib.idle_add(process_async)  # Process as often as possible
+        GLib.timeout_add(10, process_async)  # Process every 10ms
         
         logging.info("Service running...")
         
