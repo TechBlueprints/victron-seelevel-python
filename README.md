@@ -58,6 +58,20 @@ See the [Installation Guide](#installation-guide) below for detailed steps.
 
 # Installation Guide
 
+## Prerequisites
+
+**⚠️ IMPORTANT: This service requires `dbus-ble-advertisements` to be installed first!**
+
+Before installing this service, you must install the `dbus-ble-advertisements` router service:
+
+👉 **[Install dbus-ble-advertisements first](https://github.com/TechBlueprints/dbus-ble-advertisements)**
+
+The router service provides centralized BLE management for all Victron BLE services. Without it, this service will not work.
+
+> **Alternative**: If you prefer standalone operation without the router, use the **[legacy-standalone-btmon](https://github.com/TechBlueprints/victron-seelevel-python/tree/legacy-standalone-btmon)** branch instead.
+
+---
+
 ## Enable SSH Access
 
 ### From the New UI (v3.x)

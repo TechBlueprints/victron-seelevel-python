@@ -2,5 +2,18 @@
 echo "*** starting dbus-seelevel ***"
 exec 2>&1
 . /etc/profile.d/profile.sh
-exec softlimit -d 100000000 -s 1000000 -a 100000000 python3 /data/apps/dbus-seelevel/data/dbus-seelevel-service.py
 
+# Check if dbus-ble-advertisements service is available
+if ! dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames | grep -q "com.victronenergy.ble.advertisements"; then
+    echo "ERROR: dbus-ble-advertisements service not found!"
+    echo "This service requires the dbus-ble-advertisements router to be installed and running."
+    echo "Please install it from: https://github.com/TechBlueprints/dbus-ble-advertisements"
+    echo ""
+    echo "Alternative: Use the legacy-standalone-btmon branch for standalone operation:"
+    echo "  https://github.com/TechBlueprints/victron-seelevel-python/tree/legacy-standalone-btmon"
+    echo ""
+    sleep 30  # Wait before runit restarts to avoid rapid restart loop
+    exit 1
+fi
+
+exec softlimit -d 100000000 -s 1000000 -a 100000000 python3 /data/apps/dbus-seelevel/data/dbus-seelevel-service.py
