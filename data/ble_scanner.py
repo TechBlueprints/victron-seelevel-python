@@ -80,7 +80,7 @@ class DBusAdvertisementScanner(BLEScanner):
             
             # Check service health
             try:
-                service = bus.get_object('com.victronenergy.ble.advertisements', '/')
+                service = bus.get_object('com.victronenergy.ble.advertisements', '/ble_advertisements')
                 iface = dbus.Interface(service, 'com.victronenergy.ble.Advertisements')
                 version = iface.GetVersion()
                 logger.info(f"dbus-ble-advertisements service found (version: {version})")
