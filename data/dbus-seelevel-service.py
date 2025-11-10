@@ -326,22 +326,23 @@ class SeeLevelService:
     
     async def scan_continuously(self):
         """Continuously scan for BLE advertisements using D-Bus router"""
-        logging.info("Initializing BLE scanner...")
+        logging.info("=== Initializing BLE scanner ===")
+        logging.info(f"Configured sensors: {len(self.configured_sensors)}")
         
         try:
-            # Get list of MAC addresses from configured sensors
-            mac_addresses = list(set(config['mac'] for config in self.configured_sensors.values()))
-            
             # Create D-Bus scanner
+            # Only register for manufacturer IDs - router handles device filtering via UI toggles
+            logging.info("Creating D-Bus scanner...")
             self.ble_scanner = create_scanner(
                 advertisement_callback=self.advertisement_callback,
                 service_name="seelevel",
-                manufacturer_ids=[MFG_ID_CYPRESS, MFG_ID_SEELEVEL],  # Both BTP3 and BTP7
-                mac_addresses=mac_addresses
+                manufacturer_ids=[MFG_ID_CYPRESS, MFG_ID_SEELEVEL]  # Both BTP3 and BTP7
             )
+            logging.info("D-Bus scanner created")
             
+            logging.info("Starting scanner...")
             await self.ble_scanner.start()
-            logging.info("BLE scanner started successfully")
+            logging.info("=== BLE scanner started successfully ===")
             
             # Keep the scanner running
             while True:
@@ -362,22 +363,27 @@ class SeeLevelService:
 
     def run(self):
         """Run the service"""
+        logging.info("=== Starting service run() ===")
         signal.signal(signal.SIGINT, self.cleanup)
         signal.signal(signal.SIGTERM, self.cleanup)
         
         # Set up GLib main loop
+        logging.info("Setting up GLib main loop...")
         mainloop = GLib.MainLoop()
         
         # Create async event loop and integrate with GLib
+        logging.info("Creating asyncio event loop...")
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
         # Schedule the BLE scanner as a background task
         def start_ble_scanner():
+            logging.info("Scheduling BLE scanner task...")
             asyncio.ensure_future(self.scan_continuously(), loop=loop)
             return False  # Don't repeat
         
         # Schedule BLE scanner to start after a short delay
+        logging.info("Scheduling BLE scanner startup...")
         GLib.idle_add(start_ble_scanner)
         
         # Schedule async event loop processing
@@ -388,9 +394,10 @@ class SeeLevelService:
             loop.run_forever()
             return True  # Keep repeating
         
+        logging.info("Scheduling async event loop processing...")
         GLib.timeout_add(10, process_async)  # Process every 10ms
         
-        logging.info("Service running...")
+        logging.info("=== Service running, entering main loop ===")
         
         try:
             mainloop.run()

@@ -4,7 +4,7 @@ exec 2>&1
 . /etc/profile.d/profile.sh
 
 # Check if dbus-ble-advertisements service is available
-if ! dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames | grep -q "com.victronenergy.ble.advertisements"; then
+if ! dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames | grep -q "com.victronenergy.switch.ble_router"; then
     echo "ERROR: dbus-ble-advertisements service not found!"
     echo "This service requires the dbus-ble-advertisements router to be installed and running."
     echo "Please install it from: https://github.com/TechBlueprints/dbus-ble-advertisements"
@@ -16,4 +16,6 @@ if ! dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedeskt
     exit 1
 fi
 
-exec softlimit -d 100000000 -s 1000000 -a 100000000 python3 /data/apps/dbus-seelevel/data/dbus-seelevel-service.py
+echo "Router service found, starting seelevel service..."
+cd /data/apps/dbus-seelevel/data
+exec softlimit -d 100000000 -s 1000000 -a 100000000 python3 -u /data/apps/dbus-seelevel/data/dbus-seelevel-service.py
