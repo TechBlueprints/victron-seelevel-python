@@ -117,10 +117,11 @@ class SeeLevelSensor:
             self.service.add_path('/Temperature', 0)
         else:  # Tank
             self.service.add_path('/Level', 0)
-            if self.tank_capacity_gallons > 0:
-                capacity_m3 = round(self.tank_capacity_gallons * 0.00378541, 3)
-                self.service.add_path('/Remaining', 0)
-                self.service.add_path('/Capacity', capacity_m3)
+            # Always create Capacity as writeable for tanks
+            capacity_m3 = round(self.tank_capacity_gallons * 0.00378541, 3) if self.tank_capacity_gallons > 0 else 0
+            self.service.add_path('/Capacity', capacity_m3, writeable=True, 
+                                  onchangecallback=self._on_capacity_changed)
+            self.service.add_path('/Remaining', 0)
             self.service.add_path('/FluidType', fluid_type or 0)
         
         # Add SwitchableOutput paths for enable/disable control
@@ -154,6 +155,25 @@ class SeeLevelSensor:
             self.enabled = new_enabled
             # When disabled, we could set Connected=0 or just continue running
             # For now, we'll just track the state
+        
+        return True
+    
+    def _on_capacity_changed(self, path: str, value):
+        """Handle capacity changes and update Remaining"""
+        try:
+            # Convert to float
+            new_capacity_m3 = float(value)
+            
+            # Update tank_capacity_gallons for future calculations
+            self.tank_capacity_gallons = new_capacity_m3 / 0.00378541
+            
+            # Update Remaining based on current Level
+            if '/Level' in self.service:
+                current_level = self.service['/Level']
+                remaining_m3 = round(new_capacity_m3 * current_level / 100.0, 3)
+                self.service['/Remaining'] = remaining_m3
+        except (ValueError, TypeError):
+            pass
         
         return True
     
@@ -217,11 +237,10 @@ class SeeLevelSensor:
             level = sensor_value
             self.service['/Level'] = level
             
-            if self.tank_capacity_gallons > 0:
-                capacity_m3 = round(self.tank_capacity_gallons * 0.00378541, 3)
-                remaining_m3 = round(capacity_m3 * level / 100.0, 3)
-                self.service['/Capacity'] = capacity_m3
-                self.service['/Remaining'] = remaining_m3
+            # Update Remaining based on current Capacity
+            capacity_m3 = self.service['/Capacity']
+            remaining_m3 = round(capacity_m3 * level / 100.0, 3)
+            self.service['/Remaining'] = remaining_m3
         
         # Set alarm state if provided (0-9, where 0 = no alarm)
         if alarm_state is not None:
