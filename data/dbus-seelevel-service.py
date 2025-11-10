@@ -31,8 +31,16 @@ import os
 import glob
 import asyncio
 from typing import Dict
+import dbus
+import dbus.service
+import dbus.mainloop.glib
 
 from gi.repository import GLib
+
+# Import velib_python for D-Bus
+sys.path.insert(1, os.path.join(os.path.dirname(__file__), 'ext', 'velib_python'))
+from vedbus import VeDbusService
+from settingsdevice import SettingsDevice
 
 # Import pluggable BLE scanner
 from ble_scanner import create_scanner, BLEScanner
@@ -52,7 +60,38 @@ STATUS_SEELEVEL = {
                    111: "Tank init"
                   }
 
+SENSOR_TYPES = [
+    {  # BTP3
+        0: ("Fresh Water", "tank"),
+        1: ("Toilet Water", "tank"),
+        2: ("Wash Water", "tank"),
+        3: ("LPG", "tank"),
+        4: ("LPG 2", "tank"),
+        5: ("Galley Water", "tank"),
+        6: ("Galley Water 2", "tank"),
+        7: ("Temp", "temperature"),
+        8: ("Temp 2", "temperature"),
+        9: ("Temp 3", "temperature"),
+        10: ("Temp 4", "temperature"),
+        11: ("Chemical", "tank"),
+        12: ("Chemical 2", "tank"),
+        13: ("Battery", "battery")
+    },
+    {  # BTP7
+        0: ("Fresh Water", "tank"),
+        1: ("Wash Water", "tank"),
+        2: ("Toilet Water", "tank"),
+        3: ("Fresh Water 2", "tank"),
+        4: ("Wash Water 2", "tank"),
+        5: ("Toilet Water 2", "tank"),
+        6: ("Wash Water 3", "tank"),
+        7: ("LPG", "tank"),
+        8: ("Battery", "battery")
+    }
+]
+
 CONFIG_DIR = "/data/apps/dbus-seelevel/config"
+DEVICES_FILE = "/data/apps/dbus-seelevel/sensors.json"
 HEARTBEAT_INTERVAL = 300  # 5 minutes
 
 
@@ -61,56 +100,137 @@ class SeeLevelService:
     
     def __init__(self):
         self.sensor_processes: Dict[str, subprocess.Popen] = {}
-        self.configured_sensors: Dict[str, dict] = {}
+        self.discovered_sensors: Dict[str, dict] = {}  # sensor_key -> {mac, sensor_type_id, sensor_num, name, type, enabled, relay_id}
         self.last_update: Dict[str, float] = {}  # sensor_key -> timestamp of last update sent
         self.last_value: Dict[str, int] = {}  # sensor_key -> last value seen
         self.ble_scanner = None
         
-        self.load_config()
+        # Initialize D-Bus
+        dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+        self.bus = dbus.SystemBus()
         
-    def load_config(self):
-        """Load sensor configurations from files"""
-        if not os.path.exists(CONFIG_DIR):
-            logging.error(f"Config directory not found: {CONFIG_DIR}")
-            logging.error("Run dbus-seelevel-discover.py first to discover devices")
-            sys.exit(1)
+        # Create switch device for sensor control
+        self.dbusservice = VeDbusService('com.victronenergy.switch.seelevel_sensors', bus=self.bus)
+        self.bus_name = dbus.service.BusName('com.victronenergy.switch.seelevel_sensors', self.bus)
         
-        config_files = glob.glob(f"{CONFIG_DIR}/*.json")
+        # Register mandatory paths
+        self.dbusservice.add_path('/Mgmt/ProcessName', 'dbus-seelevel-service')
+        self.dbusservice.add_path('/Mgmt/ProcessVersion', '1.0')
+        self.dbusservice.add_path('/Mgmt/Connection', 'BLE')
+        self.dbusservice.add_path('/DeviceInstance', 100)
+        self.dbusservice.add_path('/ProductId', 0xFFFF)
+        self.dbusservice.add_path('/ProductName', 'SeeLevel Sensor Control')
+        self.dbusservice.add_path('/FirmwareVersion', '1.0')
+        self.dbusservice.add_path('/HardwareVersion', '1.0')
+        self.dbusservice.add_path('/Connected', 1)
         
-        if not config_files:
-            logging.error(f"No configuration files found in {CONFIG_DIR}")
-            logging.error("Run dbus-seelevel-discover.py first to discover devices")
-            sys.exit(1)
+        # Initialize settings for persistence
+        self.settings = SettingsDevice(
+            bus=self.bus,
+            supportedSettings={},
+            eventCallback=None
+        )
         
-        for config_file in config_files:
-            try:
-                with open(config_file, 'r') as f:
-                    config = json.load(f)
+        # Load persisted sensors
+        self._load_discovered_sensors()
+        
+        # Register the service
+        self.dbusservice.register()
+        
+    def _load_discovered_sensors(self):
+        """Load persisted sensor information from JSON file"""
+        if not os.path.exists(DEVICES_FILE):
+            logging.info("No persisted sensors found, starting fresh")
+            return
+        
+        try:
+            with open(DEVICES_FILE, 'r') as f:
+                self.discovered_sensors = json.load(f)
+            
+            logging.info(f"Loaded {len(self.discovered_sensors)} persisted sensors")
+            
+            # Recreate D-Bus paths for each sensor
+            for sensor_key, sensor_info in self.discovered_sensors.items():
+                relay_id = sensor_info['relay_id']
+                self._create_sensor_switch(relay_id, sensor_info)
                 
-                if not config.get('enabled', True):
-                    logging.info(f"Skipping disabled sensor: {config['sensor_type']}")
-                    continue
-                
-                mac = config['mac']
-                sensor_type_id = config['sensor_type_id']
-                sensor_num = config['sensor_num']
-                sensor_key = f"{mac}_{sensor_num}"
-                
-                self.configured_sensors[sensor_key] = config
-                logging.info(f"Loaded config: {config['custom_name']} ({mac})")
-                
-            except Exception as e:
-                logging.error(f"Failed to load {config_file}: {e}")
-        
-        if not self.configured_sensors:
-            logging.error("No enabled sensors found in configuration")
-            sys.exit(1)
-        
-        logging.info(f"Loaded {len(self.configured_sensors)} enabled sensor(s)")
+        except Exception as e:
+            logging.error(f"Failed to load sensors from {DEVICES_FILE}: {e}")
+            self.discovered_sensors = {}
     
-    def start_sensor_process(self, mac: str, sensor_type_id: int, sensor_num: int, config: dict):
-        """Start a sensor process"""
-        sensor_key = f"{mac}_{sensor_num}"
+    def _save_discovered_sensors(self):
+        """Save discovered sensors to JSON file"""
+        try:
+            os.makedirs(os.path.dirname(DEVICES_FILE), exist_ok=True)
+            with open(DEVICES_FILE, 'w') as f:
+                json.dump(self.discovered_sensors, f, indent=2)
+        except Exception as e:
+            logging.error(f"Failed to save sensors to {DEVICES_FILE}: {e}")
+    
+    def _create_sensor_switch(self, relay_id: str, sensor_info: dict):
+        """Create D-Bus paths for a sensor switch"""
+        output_path = f'/SwitchableOutput/{relay_id}'
+        
+        # Create all required paths for the switchable output
+        self.dbusservice.add_path(f'{output_path}/Name', sensor_info['name'])
+        self.dbusservice.add_path(f'{output_path}/Type', 1)  # Toggle switch
+        self.dbusservice.add_path(f'{output_path}/State', sensor_info.get('enabled', True), writeable=True, 
+                                   onchangecallback=self._on_sensor_state_changed)
+        self.dbusservice.add_path(f'{output_path}/Status', 0x00)  # OK
+        self.dbusservice.add_path(f'{output_path}/Current', 0)
+        
+        # Settings
+        self.dbusservice.add_path(f'{output_path}/Settings/CustomName', sensor_info['name'], writeable=True)
+        self.dbusservice.add_path(f'{output_path}/Settings/Type', 1)
+        self.dbusservice.add_path(f'{output_path}/Settings/Group', 0)
+        self.dbusservice.add_path(f'{output_path}/Settings/ShowUIControl', 1)
+        self.dbusservice.add_path(f'{output_path}/Settings/PowerOnState', sensor_info.get('enabled', True))
+        
+        logging.info(f"Created switch for sensor: {sensor_info['name']} (relay_{relay_id})")
+    
+    def _on_sensor_state_changed(self, path: str, value):
+        """Handle sensor switch state changes"""
+        # Extract relay_id from path: /SwitchableOutput/relay_MAC_SENSOR/State
+        parts = path.split('/')
+        if len(parts) < 3:
+            return True
+        
+        relay_id = parts[2]
+        
+        # Find the sensor
+        sensor_key = None
+        for key, info in self.discovered_sensors.items():
+            if info['relay_id'] == relay_id:
+                sensor_key = key
+                break
+        
+        if not sensor_key:
+            logging.warning(f"No sensor found for relay {relay_id}")
+            return True
+        
+        sensor_info = self.discovered_sensors[sensor_key]
+        old_enabled = sensor_info.get('enabled', True)
+        # Convert value to bool (handle both int and string)
+        new_enabled = bool(int(value) if isinstance(value, str) else value)
+        
+        if old_enabled != new_enabled:
+            logging.info(f"Sensor {sensor_info['name']} state changed: {old_enabled} -> {new_enabled}")
+            sensor_info['enabled'] = new_enabled
+            self._save_discovered_sensors()
+            
+            if new_enabled:
+                # Start the sensor process
+                self._start_sensor_if_enabled(sensor_key, sensor_info)
+            else:
+                # Stop the sensor process
+                self._stop_sensor_process(sensor_key)
+        
+        return True
+    
+    def _start_sensor_if_enabled(self, sensor_key: str, sensor_info: dict):
+        """Start a sensor process if enabled"""
+        if not sensor_info.get('enabled', True):
+            return
         
         if sensor_key in self.sensor_processes:
             if self.sensor_processes[sensor_key].poll() is None:
@@ -118,15 +238,19 @@ class SeeLevelService:
             else:
                 del self.sensor_processes[sensor_key]
         
-        custom_name = config.get('custom_name', 'Unknown')
+        mac = sensor_info['mac']
+        sensor_type_id = sensor_info['sensor_type_id']
+        sensor_num = sensor_info['sensor_num']
+        custom_name = sensor_info['name']
+        
         logging.info(f"Starting process for {custom_name}")
         
         # Build command with optional tank parameters
         cmd = ['python3', '/data/apps/dbus-seelevel/data/dbus-seelevel-sensor.py', mac, str(sensor_type_id), str(sensor_num), custom_name]
         
         # Add tank-specific parameters if present
-        if 'tank_capacity_gallons' in config:
-            cmd.append(str(config['tank_capacity_gallons']))
+        if 'tank_capacity_gallons' in sensor_info:
+            cmd.append(str(sensor_info['tank_capacity_gallons']))
         
         proc = subprocess.Popen(
             cmd,
@@ -138,6 +262,63 @@ class SeeLevelService:
         )
         
         self.sensor_processes[sensor_key] = proc
+    
+    def _stop_sensor_process(self, sensor_key: str):
+        """Stop a sensor process"""
+        if sensor_key not in self.sensor_processes:
+            return
+        
+        proc = self.sensor_processes[sensor_key]
+        if proc.poll() is None:
+            logging.info(f"Stopping sensor process: {sensor_key}")
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        
+        del self.sensor_processes[sensor_key]
+    
+    def _add_discovered_sensor(self, mac: str, sensor_type_id: int, sensor_num: int):
+        """Add a newly discovered sensor and create its switch"""
+        sensor_key = f"{mac}_{sensor_num}"
+        
+        if sensor_key in self.discovered_sensors:
+            return  # Already exists
+        
+        # Get sensor name and type from SENSOR_TYPES
+        if sensor_num not in SENSOR_TYPES[sensor_type_id]:
+            logging.warning(f"Unknown sensor: {mac} type_id={sensor_type_id} num={sensor_num}")
+            return
+        
+        name, sensor_class = SENSOR_TYPES[sensor_type_id][sensor_num]
+        
+        # Default enabled state: tanks and temperatures enabled, battery disabled
+        default_enabled = (sensor_class in ["tank", "temperature"])
+        
+        # Create relay_id from MAC and sensor_num
+        mac_clean = mac.replace(':', '').lower()
+        relay_id = f"{mac_clean}_{sensor_num:02x}"
+        
+        sensor_info = {
+            'mac': mac,
+            'sensor_type_id': sensor_type_id,
+            'sensor_num': sensor_num,
+            'name': f"{name} ({mac[-8:]})",  # e.g., "Fresh Water (C8:74:7A)"
+            'type': sensor_class,
+            'enabled': default_enabled,
+            'relay_id': relay_id
+        }
+        
+        self.discovered_sensors[sensor_key] = sensor_info
+        self._create_sensor_switch(relay_id, sensor_info)
+        self._save_discovered_sensors()
+        
+        logging.info(f"Discovered sensor: {sensor_info['name']} (enabled={default_enabled})")
+        
+        # Start the sensor process if enabled
+        if default_enabled:
+            self._start_sensor_if_enabled(sensor_key, sensor_info)
 
     def send_update(self, sensor_key: str, sensor_value: int, alarm_state: int = None):
         """Send update to sensor process (value and optional alarm for BTP3)"""
@@ -183,33 +364,30 @@ class SeeLevelService:
         self.process_seelevel_data(mac, hex_data, sensor_type_id)
     
     def process_seelevel_data(self, mac: str, hex_data: str, sensor_type_id: int):
-        """Process SeeLevel data and decide if update needed"""
+        """Process SeeLevel data and dynamically discover/update sensors"""
         data = bytes.fromhex(hex_data)
         if len(data) < 14:
             return
         
         if sensor_type_id == 0:
+            # BTP3: Single sensor per advertisement
             sensor_num = data[3]
             sensor_key = f"{mac}_{sensor_num}"
-        
-            # Only process configured sensors
-            if sensor_key not in self.configured_sensors:
-                return
+            
+            # Discover sensor if not already known
+            if sensor_key not in self.discovered_sensors:
+                self._add_discovered_sensor(mac, sensor_type_id, sensor_num)
             
             data_str = data[4:7].decode('ascii', errors='ignore').strip()
             
-            # Skip OPN (disconnected)
-            if data_str == "OPN":
+            # Skip OPN (disconnected) and ERR
+            if data_str in ["OPN", "ERR"]:
                 return
-            
-            config = self.configured_sensors[sensor_key]
             
             # Parse sensor value
             try:
                 sensor_value = int(data_str)
             except ValueError:
-                if data_str == "ERR":
-                    logging.info(f"{config['custom_name']}: Error")
                 return
             
             # Parse alarm byte (byte 13, ASCII digit 0-9) for BTP3
@@ -223,30 +401,42 @@ class SeeLevelService:
             # Process 8 tank sensors (sensor_num 0-7)
             for sensor_num in range(8):
                 sensor_key = f"{mac}_{sensor_num}"
-                # Only process configured sensors
-                if sensor_key not in self.configured_sensors:
-                    continue
+                
+                # Discover sensor if not already known
+                if sensor_key not in self.discovered_sensors:
+                    self._add_discovered_sensor(mac, sensor_type_id, sensor_num)
+                
                 sensor_value = data[sensor_num+3]  # Bytes 3-10
                 if sensor_value > 100:
-                    config = self.configured_sensors[sensor_key]
-                    if sensor_value in STATUS_SEELEVEL:
-                        logging.info(f"{config['custom_name']}: {STATUS_SEELEVEL[sensor_value]}")
-                    else:
-                        logging.info(f"{config['custom_name']}: Unknown Error #{sensor_value}")
-                    continue  # Skip this sensor but process others
+                    # Error state, skip
+                    continue
+                
                 self.process_sensor_update(mac, sensor_key, sensor_value, sensor_type_id, sensor_num, alarm_state=None)
             
             # Process battery sensor (byte 11, sensor_num 8)
             sensor_num = 8
             sensor_key = f"{mac}_{sensor_num}"
-            if sensor_key in self.configured_sensors:
-                sensor_value = data[11]  # Battery voltage × 100
-                self.process_sensor_update(mac, sensor_key, sensor_value, sensor_type_id, sensor_num, alarm_state=None)
+            
+            # Discover sensor if not already known
+            if sensor_key not in self.discovered_sensors:
+                self._add_discovered_sensor(mac, sensor_type_id, sensor_num)
+            
+            sensor_value = data[11]  # Battery voltage × 100
+            self.process_sensor_update(mac, sensor_key, sensor_value, sensor_type_id, sensor_num, alarm_state=None)
 
     def process_sensor_update(self, mac: str, sensor_key: str, sensor_value: int, sensor_type_id: int, sensor_num: int, alarm_state: int = None):
         """Process SeeLevel data and decide if update needed"""
         try:
-            config = self.configured_sensors[sensor_key]
+            # Only process if sensor is discovered and enabled
+            if sensor_key not in self.discovered_sensors:
+                return
+            
+            sensor_info = self.discovered_sensors[sensor_key]
+            
+            # Skip if sensor is disabled
+            if not sensor_info.get('enabled', True):
+                return
+            
             # Check if we should send update
             now = time.time()
             value_changed = sensor_key not in self.last_value or self.last_value[sensor_key] != sensor_value
@@ -255,7 +445,7 @@ class SeeLevelService:
             if value_changed or time_for_heartbeat:
                 # Start process if needed
                 if sensor_key not in self.sensor_processes:
-                    self.start_sensor_process(mac, sensor_type_id, sensor_num, config)
+                    self._start_sensor_if_enabled(sensor_key, sensor_info)
                 
                 # Send update (with alarm state if BTP3)
                 self.send_update(sensor_key, sensor_value, alarm_state)
@@ -268,18 +458,18 @@ class SeeLevelService:
                     if (sensor_type_id == 0 and sensor_num == 13) or (sensor_type_id == 1 and sensor_num == 8):  # Battery
                         # Both BTP3 and BTP7: voltage × 10
                         voltage = sensor_value / 10.0
-                        logging.info(f"{config['custom_name']}: {voltage}V (changed){alarm_suffix}")
+                        logging.info(f"{sensor_info['name']}: {voltage}V (changed){alarm_suffix}")
                     elif sensor_type_id == 0 and sensor_num in [7, 8, 9, 10]:  # Temperature
                         temp_c = (sensor_value - 32.0) * 5.0 / 9.0
-                        logging.info(f"{config['custom_name']}: {temp_c:.1f}°C (changed){alarm_suffix}")
+                        logging.info(f"{sensor_info['name']}: {temp_c:.1f}°C (changed){alarm_suffix}")
                     else:  # Tank
-                        tank_capacity_gallons = config.get('tank_capacity_gallons', 0)
+                        tank_capacity_gallons = sensor_info.get('tank_capacity_gallons', 0)
                         if tank_capacity_gallons > 0:
                             capacity_m3 = round(tank_capacity_gallons * 0.00378541, 3)
                             remaining_m3 = round(capacity_m3 * sensor_value / 100.0, 3)
-                            logging.info(f"{config['custom_name']}: {sensor_value}% ({remaining_m3}/{capacity_m3} m³) (changed){alarm_suffix}")
+                            logging.info(f"{sensor_info['name']}: {sensor_value}% ({remaining_m3}/{capacity_m3} m³) (changed){alarm_suffix}")
                         else:
-                            logging.info(f"{config['custom_name']}: {sensor_value}% (changed){alarm_suffix}")
+                            logging.info(f"{sensor_info['name']}: {sensor_value}% (changed){alarm_suffix}")
                 
                 # Track last update time and value
                 self.last_update[sensor_key] = now
@@ -327,7 +517,7 @@ class SeeLevelService:
     async def scan_continuously(self):
         """Continuously scan for BLE advertisements using D-Bus router"""
         logging.info("=== Initializing BLE scanner ===")
-        logging.info(f"Configured sensors: {len(self.configured_sensors)}")
+        logging.info(f"Discovered sensors: {len(self.discovered_sensors)}")
         
         try:
             # Create D-Bus scanner
