@@ -20,6 +20,7 @@ SeeLevel Sensor Process - Minimal DBus service that accepts update commands via 
 import sys
 import json
 import os
+import logging
 
 sys.path.insert(1, '/opt/victronenergy/dbus-systemcalc-py/ext/velib_python')
 
@@ -126,7 +127,7 @@ class SeeLevelSensor:
         
         # Add SwitchableOutput paths for enable/disable control
         # Default enabled state: tanks and temperatures enabled, battery disabled
-        default_enabled = (role in ["tank", "temperature"])
+        default_enabled = 1 if (role in ["tank", "temperature"]) else 0
         
         self.service.add_path('/SwitchableOutput/0/Name', device_name)
         self.service.add_path('/SwitchableOutput/0/Type', 1)  # Toggle switch
@@ -144,7 +145,7 @@ class SeeLevelSensor:
         
         self.registered = False
         self.service_name = service_name
-        self.enabled = default_enabled
+        self.enabled = bool(default_enabled)
 
     def _on_enabled_changed(self, path: str, value):
         """Handle enabled state changes"""
@@ -153,8 +154,8 @@ class SeeLevelSensor:
         
         if self.enabled != new_enabled:
             self.enabled = new_enabled
-            # When disabled, we could set Connected=0 or just continue running
-            # For now, we'll just track the state
+            # Update Connected state - when disabled, disconnect from GUI
+            self.service['/Connected'] = 1 if new_enabled else 0
         
         return True
     
@@ -270,6 +271,13 @@ class SeeLevelSensor:
 
 
 def main():
+    # Configure logging to stdout (captured by runit)
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
     if len(sys.argv) < 4:
         sys.exit(1)
     

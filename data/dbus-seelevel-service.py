@@ -162,8 +162,8 @@ class SeeLevelService:
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=None,  # Inherit stdout - goes to main service log
+            stderr=None,  # Inherit stderr - goes to main service log
             universal_newlines=True,
             bufsize=1
         )
