@@ -143,9 +143,11 @@ class SeeLevelSensor:
         self.service.add_path('/SwitchableOutput/0/Settings/ShowUIControl', 1)
         self.service.add_path('/SwitchableOutput/0/Settings/PowerOnState', default_enabled)
         
-        self.registered = False
         self.service_name = service_name
         self.enabled = bool(default_enabled)
+        
+        # Register immediately so the switch is visible even if sensor is disabled
+        self.service.register()
 
     def _on_enabled_changed(self, path: str, value):
         """Handle enabled state changes"""
@@ -154,8 +156,9 @@ class SeeLevelSensor:
         
         if self.enabled != new_enabled:
             self.enabled = new_enabled
-            # Update Connected state - when disabled, disconnect from GUI
-            self.service['/Connected'] = 1 if new_enabled else 0
+            # Per D-Bus documentation: when State is invalid, the UI element should not be shown
+            # So we don't need to change Connected or clear values - just let the disabled state
+            # prevent updates via the update() method
         
         return True
     
@@ -227,6 +230,10 @@ class SeeLevelSensor:
 
     def update(self, sensor_value: int, alarm_state: int = None):
         """Update DBus paths with new value and optional alarm"""
+        # Skip updates if sensor is disabled
+        if not self.enabled:
+            return
+        
         if (self.sensor_type_id == 0 and self.sensor_num == 13) or (self.sensor_type_id == 1 and self.sensor_num == 8):  # Battery
             # Both BTP3 and BTP7: voltage × 10
             voltage = sensor_value / 10.0
