@@ -100,42 +100,17 @@ class SeeLevelService:
     
     def __init__(self):
         self.sensor_processes: Dict[str, subprocess.Popen] = {}
-        self.discovered_sensors: Dict[str, dict] = {}  # sensor_key -> {mac, sensor_type_id, sensor_num, name, type, enabled, relay_id}
+        self.discovered_sensors: Dict[str, dict] = {}  # sensor_key -> {mac, sensor_type_id, sensor_num, name, type}
         self.last_update: Dict[str, float] = {}  # sensor_key -> timestamp of last update sent
         self.last_value: Dict[str, int] = {}  # sensor_key -> last value seen
         self.ble_scanner = None
         
-        # Initialize D-Bus
+        # Initialize D-Bus for signal handling
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
         self.bus = dbus.SystemBus()
         
-        # Create switch device for sensor control
-        self.dbusservice = VeDbusService('com.victronenergy.switch.seelevel_sensors', bus=self.bus)
-        self.bus_name = dbus.service.BusName('com.victronenergy.switch.seelevel_sensors', self.bus)
-        
-        # Register mandatory paths
-        self.dbusservice.add_path('/Mgmt/ProcessName', 'dbus-seelevel-service')
-        self.dbusservice.add_path('/Mgmt/ProcessVersion', '1.0')
-        self.dbusservice.add_path('/Mgmt/Connection', 'BLE')
-        self.dbusservice.add_path('/DeviceInstance', 100)
-        self.dbusservice.add_path('/ProductId', 0xFFFF)
-        self.dbusservice.add_path('/ProductName', 'SeeLevel Sensor Control')
-        self.dbusservice.add_path('/FirmwareVersion', '1.0')
-        self.dbusservice.add_path('/HardwareVersion', '1.0')
-        self.dbusservice.add_path('/Connected', 1)
-        
-        # Initialize settings for persistence
-        self.settings = SettingsDevice(
-            bus=self.bus,
-            supportedSettings={},
-            eventCallback=None
-        )
-        
         # Load persisted sensors
         self._load_discovered_sensors()
-        
-        # Register the service
-        self.dbusservice.register()
         
     def _load_discovered_sensors(self):
         """Load persisted sensor information from JSON file"""
@@ -148,11 +123,6 @@ class SeeLevelService:
                 self.discovered_sensors = json.load(f)
             
             logging.info(f"Loaded {len(self.discovered_sensors)} persisted sensors")
-            
-            # Recreate D-Bus paths for each sensor
-            for sensor_key, sensor_info in self.discovered_sensors.items():
-                relay_id = sensor_info['relay_id']
-                self._create_sensor_switch(relay_id, sensor_info)
                 
         except Exception as e:
             logging.error(f"Failed to load sensors from {DEVICES_FILE}: {e}")
@@ -167,71 +137,8 @@ class SeeLevelService:
         except Exception as e:
             logging.error(f"Failed to save sensors to {DEVICES_FILE}: {e}")
     
-    def _create_sensor_switch(self, relay_id: str, sensor_info: dict):
-        """Create D-Bus paths for a sensor switch"""
-        output_path = f'/SwitchableOutput/{relay_id}'
-        
-        # Create all required paths for the switchable output
-        self.dbusservice.add_path(f'{output_path}/Name', sensor_info['name'])
-        self.dbusservice.add_path(f'{output_path}/Type', 1)  # Toggle switch
-        self.dbusservice.add_path(f'{output_path}/State', sensor_info.get('enabled', True), writeable=True, 
-                                   onchangecallback=self._on_sensor_state_changed)
-        self.dbusservice.add_path(f'{output_path}/Status', 0x00)  # OK
-        self.dbusservice.add_path(f'{output_path}/Current', 0)
-        
-        # Settings
-        self.dbusservice.add_path(f'{output_path}/Settings/CustomName', sensor_info['name'], writeable=True)
-        self.dbusservice.add_path(f'{output_path}/Settings/Type', 1)
-        self.dbusservice.add_path(f'{output_path}/Settings/Group', 0)
-        self.dbusservice.add_path(f'{output_path}/Settings/ShowUIControl', 1)
-        self.dbusservice.add_path(f'{output_path}/Settings/PowerOnState', sensor_info.get('enabled', True))
-        
-        logging.info(f"Created switch for sensor: {sensor_info['name']} (relay_{relay_id})")
-    
-    def _on_sensor_state_changed(self, path: str, value):
-        """Handle sensor switch state changes"""
-        # Extract relay_id from path: /SwitchableOutput/relay_MAC_SENSOR/State
-        parts = path.split('/')
-        if len(parts) < 3:
-            return True
-        
-        relay_id = parts[2]
-        
-        # Find the sensor
-        sensor_key = None
-        for key, info in self.discovered_sensors.items():
-            if info['relay_id'] == relay_id:
-                sensor_key = key
-                break
-        
-        if not sensor_key:
-            logging.warning(f"No sensor found for relay {relay_id}")
-            return True
-        
-        sensor_info = self.discovered_sensors[sensor_key]
-        old_enabled = sensor_info.get('enabled', True)
-        # Convert value to bool (handle both int and string)
-        new_enabled = bool(int(value) if isinstance(value, str) else value)
-        
-        if old_enabled != new_enabled:
-            logging.info(f"Sensor {sensor_info['name']} state changed: {old_enabled} -> {new_enabled}")
-            sensor_info['enabled'] = new_enabled
-            self._save_discovered_sensors()
-            
-            if new_enabled:
-                # Start the sensor process
-                self._start_sensor_if_enabled(sensor_key, sensor_info)
-            else:
-                # Stop the sensor process
-                self._stop_sensor_process(sensor_key)
-        
-        return True
-    
-    def _start_sensor_if_enabled(self, sensor_key: str, sensor_info: dict):
-        """Start a sensor process if enabled"""
-        if not sensor_info.get('enabled', True):
-            return
-        
+    def _start_sensor_process(self, sensor_key: str, sensor_info: dict):
+        """Start a sensor process"""
         if sensor_key in self.sensor_processes:
             if self.sensor_processes[sensor_key].poll() is None:
                 return  # Still running
@@ -263,24 +170,8 @@ class SeeLevelService:
         
         self.sensor_processes[sensor_key] = proc
     
-    def _stop_sensor_process(self, sensor_key: str):
-        """Stop a sensor process"""
-        if sensor_key not in self.sensor_processes:
-            return
-        
-        proc = self.sensor_processes[sensor_key]
-        if proc.poll() is None:
-            logging.info(f"Stopping sensor process: {sensor_key}")
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-        
-        del self.sensor_processes[sensor_key]
-    
     def _add_discovered_sensor(self, mac: str, sensor_type_id: int, sensor_num: int):
-        """Add a newly discovered sensor and create its switch"""
+        """Add a newly discovered sensor"""
         sensor_key = f"{mac}_{sensor_num}"
         
         if sensor_key in self.discovered_sensors:
@@ -293,32 +184,21 @@ class SeeLevelService:
         
         name, sensor_class = SENSOR_TYPES[sensor_type_id][sensor_num]
         
-        # Default enabled state: tanks and temperatures enabled, battery disabled
-        default_enabled = (sensor_class in ["tank", "temperature"])
-        
-        # Create relay_id from MAC and sensor_num
-        mac_clean = mac.replace(':', '').lower()
-        relay_id = f"{mac_clean}_{sensor_num:02x}"
-        
         sensor_info = {
             'mac': mac,
             'sensor_type_id': sensor_type_id,
             'sensor_num': sensor_num,
-            'name': f"{name} ({mac[-8:]})",  # e.g., "Fresh Water (C8:74:7A)"
-            'type': sensor_class,
-            'enabled': default_enabled,
-            'relay_id': relay_id
+            'name': name,  # e.g., "Fresh Water"
+            'type': sensor_class
         }
         
         self.discovered_sensors[sensor_key] = sensor_info
-        self._create_sensor_switch(relay_id, sensor_info)
         self._save_discovered_sensors()
         
-        logging.info(f"Discovered sensor: {sensor_info['name']} (enabled={default_enabled})")
+        logging.info(f"Discovered sensor: {sensor_info['name']}")
         
-        # Start the sensor process if enabled
-        if default_enabled:
-            self._start_sensor_if_enabled(sensor_key, sensor_info)
+        # Start the sensor process (it will handle its own enabled state)
+        self._start_sensor_process(sensor_key, sensor_info)
 
     def send_update(self, sensor_key: str, sensor_value: int, alarm_state: int = None):
         """Send update to sensor process (value and optional alarm for BTP3)"""
@@ -427,15 +307,11 @@ class SeeLevelService:
     def process_sensor_update(self, mac: str, sensor_key: str, sensor_value: int, sensor_type_id: int, sensor_num: int, alarm_state: int = None):
         """Process SeeLevel data and decide if update needed"""
         try:
-            # Only process if sensor is discovered and enabled
+            # Only process if sensor is discovered
             if sensor_key not in self.discovered_sensors:
                 return
             
             sensor_info = self.discovered_sensors[sensor_key]
-            
-            # Skip if sensor is disabled
-            if not sensor_info.get('enabled', True):
-                return
             
             # Check if we should send update
             now = time.time()
@@ -445,7 +321,7 @@ class SeeLevelService:
             if value_changed or time_for_heartbeat:
                 # Start process if needed
                 if sensor_key not in self.sensor_processes:
-                    self._start_sensor_if_enabled(sensor_key, sensor_info)
+                    self._start_sensor_process(sensor_key, sensor_info)
                 
                 # Send update (with alarm state if BTP3)
                 self.send_update(sensor_key, sensor_value, alarm_state)

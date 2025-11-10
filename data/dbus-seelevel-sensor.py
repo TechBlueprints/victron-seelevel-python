@@ -123,9 +123,40 @@ class SeeLevelSensor:
                 self.service.add_path('/Capacity', capacity_m3)
             self.service.add_path('/FluidType', fluid_type or 0)
         
+        # Add SwitchableOutput paths for enable/disable control
+        # Default enabled state: tanks and temperatures enabled, battery disabled
+        default_enabled = (role in ["tank", "temperature"])
+        
+        self.service.add_path('/SwitchableOutput/0/Name', device_name)
+        self.service.add_path('/SwitchableOutput/0/Type', 1)  # Toggle switch
+        self.service.add_path('/SwitchableOutput/0/State', default_enabled, writeable=True,
+                              onchangecallback=self._on_enabled_changed)
+        self.service.add_path('/SwitchableOutput/0/Status', 0x00)  # OK
+        self.service.add_path('/SwitchableOutput/0/Current', 0)
+        
+        # Settings
+        self.service.add_path('/SwitchableOutput/0/Settings/CustomName', device_name, writeable=True)
+        self.service.add_path('/SwitchableOutput/0/Settings/Type', 1)
+        self.service.add_path('/SwitchableOutput/0/Settings/Group', 0)
+        self.service.add_path('/SwitchableOutput/0/Settings/ShowUIControl', 1)
+        self.service.add_path('/SwitchableOutput/0/Settings/PowerOnState', default_enabled)
+        
         self.registered = False
         self.service_name = service_name
+        self.enabled = default_enabled
 
+    def _on_enabled_changed(self, path: str, value):
+        """Handle enabled state changes"""
+        # Convert value to bool (handle both int and string)
+        new_enabled = bool(int(value) if isinstance(value, str) else value)
+        
+        if self.enabled != new_enabled:
+            self.enabled = new_enabled
+            # When disabled, we could set Connected=0 or just continue running
+            # For now, we'll just track the state
+        
+        return True
+    
     @staticmethod
     def _get_product_name(product_id: int) -> str:
         names = {
