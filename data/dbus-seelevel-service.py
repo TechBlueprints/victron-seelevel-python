@@ -136,7 +136,7 @@ class SeeLevelService:
         self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/ShowUIControl', 1)
         self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/PowerOnState', 1)
         
-        # Load persisted sensors and create switches
+        # Load persisted sensors from settings
         self._load_discovered_sensors()
         
         # Register device in settings (for GUI device list)
@@ -167,76 +167,112 @@ class SeeLevelService:
         logging.info("registered ourselves on D-Bus as com.victronenergy.switch.seelevel_monitor")
         
     def _load_discovered_sensors(self):
-        """Load persisted sensor information from D-Bus paths"""
-        # Scan all SwitchableOutput paths to find existing sensors
+        """Load persisted sensor information from com.victronenergy.settings"""
         try:
-            # Get all paths from the switch service
-            all_paths = self.switch_service.get_service().list_objects()
+            settings_obj = self.bus.get_object('com.victronenergy.settings', '/')
+            settings_iface = dbus.Interface(settings_obj, 'com.victronenergy.BusItem')
             
-            # Find all relay paths that have sensor metadata
-            for path in all_paths:
-                if not path.startswith('/SwitchableOutput/relay_'):
-                    continue
-                if path.endswith('/Name') or path.endswith('/State'):
+            # Try to get the list of sensor keys from settings
+            try:
+                sensor_keys_str = settings_iface.GetValue('/Settings/Devices/seelevel_monitor/SensorKeys')
+                if sensor_keys_str:
+                    sensor_keys = sensor_keys_str.split(',')
+                else:
+                    sensor_keys = []
+            except:
+                sensor_keys = []
+                
+            logging.info(f"Loading {len(sensor_keys)} persisted sensors from settings")
+            
+            for sensor_key in sensor_keys:
+                if not sensor_key:
                     continue
                     
-                # Extract relay_id from path
-                parts = path.split('/')
-                if len(parts) < 3:
-                    continue
-                relay_id_part = parts[2]  # e.g., "relay_1"
-                if not relay_id_part.startswith('relay_'):
-                    continue
-                relay_id = int(relay_id_part.replace('relay_', ''))
-                
-                # Skip relay_0 (master config switch)
-                if relay_id == 0:
+                try:
+                    # Load sensor metadata from settings
+                    base_path = f'/Settings/Devices/seelevel_monitor/Sensors/{sensor_key}'
+                    mac = settings_iface.GetValue(f'{base_path}/MAC')
+                    sensor_type_id = int(settings_iface.GetValue(f'{base_path}/TypeID'))
+                    sensor_num = int(settings_iface.GetValue(f'{base_path}/Num'))
+                    name = settings_iface.GetValue(f'{base_path}/Name')
+                    sensor_type = settings_iface.GetValue(f'{base_path}/Type')
+                    relay_id = int(settings_iface.GetValue(f'{base_path}/RelayID'))
+                    enabled = bool(int(settings_iface.GetValue(f'{base_path}/Enabled')))
+                    
+                    # Add to discovered_sensors
+                    self.discovered_sensors[sensor_key] = {
+                        'mac': mac,
+                        'sensor_type_id': sensor_type_id,
+                        'sensor_num': sensor_num,
+                        'name': name,
+                        'type': sensor_type,
+                        'relay_id': relay_id,
+                        'enabled': enabled
+                    }
+                    
+                    # Create switch for this sensor
+                    self._create_switch(sensor_key, self.discovered_sensors[sensor_key])
+                    
+                    # Update next_relay_id
+                    self.next_relay_id = max(self.next_relay_id, relay_id + 1)
+                    
+                    # Start sensor process if enabled
+                    if enabled:
+                        self._start_sensor_process(sensor_key, self.discovered_sensors[sensor_key])
+                        
+                except Exception as e:
+                    logging.error(f"Failed to load sensor {sensor_key}: {e}")
                     continue
                     
-                # Check if this relay has sensor metadata
-                mac_path = f'/SwitchableOutput/relay_{relay_id}/SensorMAC'
-                if mac_path not in all_paths:
-                    continue
-                    
-                # Load sensor metadata from D-Bus
-                mac = self.switch_service[mac_path]
-                sensor_type_id = self.switch_service[f'/SwitchableOutput/relay_{relay_id}/SensorTypeID']
-                sensor_num = self.switch_service[f'/SwitchableOutput/relay_{relay_id}/SensorNum']
-                name = self.switch_service[f'/SwitchableOutput/relay_{relay_id}/Name']
-                sensor_type = self.switch_service[f'/SwitchableOutput/relay_{relay_id}/SensorType']
-                enabled = bool(self.switch_service[f'/SwitchableOutput/relay_{relay_id}/State'])
-                
-                # Reconstruct sensor_key
-                sensor_key = f"{mac}_{sensor_num}"
-                
-                # Add to discovered_sensors
-                self.discovered_sensors[sensor_key] = {
-                    'mac': mac,
-                    'sensor_type_id': sensor_type_id,
-                    'sensor_num': sensor_num,
-                    'name': name,
-                    'type': sensor_type,
-                    'relay_id': relay_id,
-                    'enabled': enabled
-                }
-                
-                # Update next_relay_id
-                self.next_relay_id = max(self.next_relay_id, relay_id + 1)
-                
-                # Start sensor process if enabled
-                if enabled:
-                    self._start_sensor_process(sensor_key, self.discovered_sensors[sensor_key])
-                    
-            logging.info(f"Loaded {len(self.discovered_sensors)} persisted sensors from D-Bus")
+            logging.info(f"Loaded {len(self.discovered_sensors)} persisted sensors from settings")
             
         except Exception as e:
-            logging.error(f"Failed to load sensors from D-Bus: {e}")
+            logging.info(f"No persisted sensors found in settings (this is normal on first run): {e}")
             self.discovered_sensors = {}
     
     def _on_settings_changed(self, setting, old_value, new_value):
         """Callback when a setting changes in com.victronenergy.settings"""
         logging.debug(f"Setting changed: {setting} = {new_value}")
         # Settings are already updated by SettingsDevice, no action needed
+    
+    def _save_discovered_sensors(self):
+        """Save discovered sensors to com.victronenergy.settings"""
+        try:
+            settings_obj = self.bus.get_object('com.victronenergy.settings', '/')
+            settings_iface = dbus.Interface(settings_obj, 'com.victronenergy.BusItem')
+            
+            # Save the list of sensor keys
+            sensor_keys_str = ','.join(self.discovered_sensors.keys())
+            try:
+                settings_iface.SetValue('/Settings/Devices/seelevel_monitor/SensorKeys', sensor_keys_str)
+            except:
+                # If path doesn't exist, create it
+                settings_iface.AddSetting('/Settings/Devices/seelevel_monitor', 'SensorKeys', sensor_keys_str, '', '')
+            
+            # Save each sensor's metadata
+            for sensor_key, sensor_info in self.discovered_sensors.items():
+                base_path = f'/Settings/Devices/seelevel_monitor/Sensors/{sensor_key}'
+                
+                # Save each field
+                for field_name, field_value in [
+                    ('MAC', sensor_info['mac']),
+                    ('TypeID', str(sensor_info['sensor_type_id'])),
+                    ('Num', str(sensor_info['sensor_num'])),
+                    ('Name', sensor_info['name']),
+                    ('Type', sensor_info['type']),
+                    ('RelayID', str(sensor_info['relay_id'])),
+                    ('Enabled', '1' if sensor_info.get('enabled', False) else '0'),
+                ]:
+                    try:
+                        settings_iface.SetValue(f'{base_path}/{field_name}', field_value)
+                    except:
+                        # If path doesn't exist, create it
+                        settings_iface.AddSetting(base_path, field_name, field_value, '', '')
+                        
+            logging.debug(f"Saved {len(self.discovered_sensors)} sensors to settings")
+            
+        except Exception as e:
+            logging.error(f"Failed to save sensors to settings: {e}")
     
     def _on_config_switch_changed(self, path: str, value):
         """Handle config switch state changes - show/hide all sensor switches"""
@@ -292,12 +328,6 @@ class SeeLevelService:
         self.switch_service.add_path(f'{output_path}/Settings/ShowUIControl', show_ui)
         self.switch_service.add_path(f'{output_path}/Settings/PowerOnState', 1 if sensor_info['enabled'] else 0)
         
-        # Store sensor metadata as D-Bus paths (for persistence)
-        self.switch_service.add_path(f'{output_path}/SensorMAC', sensor_info['mac'])
-        self.switch_service.add_path(f'{output_path}/SensorTypeID', sensor_info['sensor_type_id'])
-        self.switch_service.add_path(f'{output_path}/SensorNum', sensor_info['sensor_num'])
-        self.switch_service.add_path(f'{output_path}/SensorType', sensor_info['type'])
-        
         logging.info(f"Created switch for {sensor_info['name']} at {output_path}, enabled={sensor_info['enabled']}")
     
     def _on_switch_changed(self, sensor_key: str, path: str, value):
@@ -312,6 +342,7 @@ class SeeLevelService:
         
         if old_enabled != new_enabled:
             sensor_info['enabled'] = new_enabled
+            self._save_discovered_sensors()
             
             if new_enabled:
                 # Start the sensor process
@@ -405,6 +436,9 @@ class SeeLevelService:
         
         # Create switch for this sensor
         self._create_switch(sensor_key, sensor_info)
+        
+        # Save to settings
+        self._save_discovered_sensors()
         
         logging.info(f"Discovered sensor: {sensor_info['name']}")
         

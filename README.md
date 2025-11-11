@@ -227,12 +227,12 @@ Once discovered, sensors persist across reboots and can be individually enabled/
 
 ### Persistent Storage
 
-Sensor configurations and metadata are stored in D-Bus:
-- **Device settings**: `/Settings/Devices/seelevel_monitor/` in `com.victronenergy.settings`
-- **Sensor metadata**: `/SwitchableOutput/relay_X/Sensor*` paths on the `com.victronenergy.switch.seelevel_monitor` service
-- **Switch states**: Automatically persisted by Venus OS when you toggle switches in the GUI
+Sensor configurations and metadata are stored in `com.victronenergy.settings`:
+- **Device settings**: `/Settings/Devices/seelevel_monitor/ClassAndVrmInstance` and `/Settings/Devices/seelevel_monitor/CustomName`
+- **Sensor list**: `/Settings/Devices/seelevel_monitor/SensorKeys` (comma-separated list of sensor keys)
+- **Sensor metadata**: `/Settings/Devices/seelevel_monitor/Sensors/{sensor_key}/` with paths for MAC, TypeID, Num, Name, Type, RelayID, and Enabled
 
-All configuration is managed automatically - no manual editing required.
+All configuration is managed automatically by Venus OS and persists across reboots - no manual editing required.
 
 ## Service Management
 
