@@ -91,6 +91,7 @@ SENSOR_TYPES = [
 ]
 
 HEARTBEAT_INTERVAL = 300  # 5 minutes
+SENSORS_FILE = "/data/apps/dbus-seelevel/sensors.json"
 
 
 class SeeLevelService:
@@ -167,112 +168,48 @@ class SeeLevelService:
         logging.info("registered ourselves on D-Bus as com.victronenergy.switch.seelevel_monitor")
         
     def _load_discovered_sensors(self):
-        """Load persisted sensor information from com.victronenergy.settings"""
+        """Load persisted sensor information from JSON file"""
+        if not os.path.exists(SENSORS_FILE):
+            logging.info("No persisted sensors found (first run)")
+            return
+        
         try:
-            settings_obj = self.bus.get_object('com.victronenergy.settings', '/')
-            settings_iface = dbus.Interface(settings_obj, 'com.victronenergy.BusItem')
+            with open(SENSORS_FILE, 'r') as f:
+                self.discovered_sensors = json.load(f)
             
-            # Try to get the list of sensor keys from settings
-            try:
-                sensor_keys_str = settings_iface.GetValue('/Settings/Devices/seelevel_monitor/SensorKeys')
-                if sensor_keys_str:
-                    sensor_keys = sensor_keys_str.split(',')
-                else:
-                    sensor_keys = []
-            except:
-                sensor_keys = []
+            logging.info(f"Loaded {len(self.discovered_sensors)} persisted sensors from {SENSORS_FILE}")
+            
+            # Create switches and start processes for loaded sensors
+            for sensor_key, sensor_info in self.discovered_sensors.items():
+                # Create switch for this sensor
+                self._create_switch(sensor_key, sensor_info)
                 
-            logging.info(f"Loading {len(sensor_keys)} persisted sensors from settings")
-            
-            for sensor_key in sensor_keys:
-                if not sensor_key:
-                    continue
-                    
-                try:
-                    # Load sensor metadata from settings
-                    base_path = f'/Settings/Devices/seelevel_monitor/Sensors/{sensor_key}'
-                    mac = settings_iface.GetValue(f'{base_path}/MAC')
-                    sensor_type_id = int(settings_iface.GetValue(f'{base_path}/TypeID'))
-                    sensor_num = int(settings_iface.GetValue(f'{base_path}/Num'))
-                    name = settings_iface.GetValue(f'{base_path}/Name')
-                    sensor_type = settings_iface.GetValue(f'{base_path}/Type')
-                    relay_id = int(settings_iface.GetValue(f'{base_path}/RelayID'))
-                    enabled = bool(int(settings_iface.GetValue(f'{base_path}/Enabled')))
-                    
-                    # Add to discovered_sensors
-                    self.discovered_sensors[sensor_key] = {
-                        'mac': mac,
-                        'sensor_type_id': sensor_type_id,
-                        'sensor_num': sensor_num,
-                        'name': name,
-                        'type': sensor_type,
-                        'relay_id': relay_id,
-                        'enabled': enabled
-                    }
-                    
-                    # Create switch for this sensor
-                    self._create_switch(sensor_key, self.discovered_sensors[sensor_key])
-                    
-                    # Update next_relay_id
-                    self.next_relay_id = max(self.next_relay_id, relay_id + 1)
-                    
-                    # Start sensor process if enabled
-                    if enabled:
-                        self._start_sensor_process(sensor_key, self.discovered_sensors[sensor_key])
-                        
-                except Exception as e:
-                    logging.error(f"Failed to load sensor {sensor_key}: {e}")
-                    continue
-                    
-            logging.info(f"Loaded {len(self.discovered_sensors)} persisted sensors from settings")
-            
+                # Update next_relay_id
+                if 'relay_id' in sensor_info:
+                    self.next_relay_id = max(self.next_relay_id, sensor_info['relay_id'] + 1)
+                
+                # Start sensor process if enabled
+                if sensor_info.get('enabled', False):
+                    self._start_sensor_process(sensor_key, sensor_info)
+                
         except Exception as e:
-            logging.info(f"No persisted sensors found in settings (this is normal on first run): {e}")
+            logging.error(f"Failed to load sensors from {SENSORS_FILE}: {e}")
             self.discovered_sensors = {}
+    
+    def _save_discovered_sensors(self):
+        """Save discovered sensors to JSON file"""
+        try:
+            os.makedirs(os.path.dirname(SENSORS_FILE), exist_ok=True)
+            with open(SENSORS_FILE, 'w') as f:
+                json.dump(self.discovered_sensors, f, indent=2)
+            logging.debug(f"Saved {len(self.discovered_sensors)} sensors to {SENSORS_FILE}")
+        except Exception as e:
+            logging.error(f"Failed to save sensors to {SENSORS_FILE}: {e}")
     
     def _on_settings_changed(self, setting, old_value, new_value):
         """Callback when a setting changes in com.victronenergy.settings"""
         logging.debug(f"Setting changed: {setting} = {new_value}")
         # Settings are already updated by SettingsDevice, no action needed
-    
-    def _save_discovered_sensors(self):
-        """Save discovered sensors to com.victronenergy.settings"""
-        try:
-            settings_obj = self.bus.get_object('com.victronenergy.settings', '/')
-            settings_iface = dbus.Interface(settings_obj, 'com.victronenergy.BusItem')
-            
-            # Save the list of sensor keys
-            sensor_keys_str = ','.join(self.discovered_sensors.keys())
-            try:
-                settings_iface.SetValue('/Settings/Devices/seelevel_monitor/SensorKeys', sensor_keys_str)
-            except:
-                # If path doesn't exist, create it
-                settings_iface.AddSetting('/Settings/Devices/seelevel_monitor', 'SensorKeys', sensor_keys_str, '', '')
-            
-            # Save each sensor's metadata
-            for sensor_key, sensor_info in self.discovered_sensors.items():
-                base_path = f'/Settings/Devices/seelevel_monitor/Sensors/{sensor_key}'
-                
-                # Save each field
-                for field_name, field_value in [
-                    ('MAC', sensor_info['mac']),
-                    ('TypeID', str(sensor_info['sensor_type_id'])),
-                    ('Num', str(sensor_info['sensor_num'])),
-                    ('Name', sensor_info['name']),
-                    ('Type', sensor_info['type']),
-                    ('RelayID', str(sensor_info['relay_id'])),
-                    ('Enabled', '1' if sensor_info.get('enabled', False) else '0'),
-                ]:
-                    try:
-                        settings_iface.SetValue(f'{base_path}/{field_name}', field_value)
-                    except:
-                        # If path doesn't exist, create it
-                        settings_iface.AddSetting(base_path, field_name, field_value, '', '')
-                        
-            logging.debug(f"Saved {len(self.discovered_sensors)} sensors to settings")
-            
-        except Exception as e:
-            logging.error(f"Failed to save sensors to settings: {e}")
     
     def _on_config_switch_changed(self, path: str, value):
         """Handle config switch state changes - show/hide all sensor switches"""
@@ -488,7 +425,7 @@ class SeeLevelService:
         # Process the advertisement data
         hex_data = data.hex()
         self.process_seelevel_data(mac, hex_data, sensor_type_id)
-    
+
     def process_seelevel_data(self, mac: str, hex_data: str, sensor_type_id: int):
         """Process SeeLevel data and dynamically discover/update sensors"""
         data = bytes.fromhex(hex_data)
@@ -551,8 +488,8 @@ class SeeLevelService:
             if sensor_key not in self.discovered_sensors:
                 self._add_discovered_sensor(mac, sensor_type_id, sensor_num)
             
-            sensor_value = data[11]  # Battery voltage × 100
-            self.process_sensor_update(mac, sensor_key, sensor_value, sensor_type_id, sensor_num, alarm_state=None)
+                sensor_value = data[11]  # Battery voltage × 100
+                self.process_sensor_update(mac, sensor_key, sensor_value, sensor_type_id, sensor_num, alarm_state=None)
 
     def process_sensor_update(self, mac: str, sensor_key: str, sensor_value: int, sensor_type_id: int, sensor_num: int, alarm_state: int = None):
         """Process SeeLevel data and decide if update needed"""

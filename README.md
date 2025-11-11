@@ -227,12 +227,11 @@ Once discovered, sensors persist across reboots and can be individually enabled/
 
 ### Persistent Storage
 
-Sensor configurations and metadata are stored in `com.victronenergy.settings`:
-- **Device settings**: `/Settings/Devices/seelevel_monitor/ClassAndVrmInstance` and `/Settings/Devices/seelevel_monitor/CustomName`
-- **Sensor list**: `/Settings/Devices/seelevel_monitor/SensorKeys` (comma-separated list of sensor keys)
-- **Sensor metadata**: `/Settings/Devices/seelevel_monitor/Sensors/{sensor_key}/` with paths for MAC, TypeID, Num, Name, Type, RelayID, and Enabled
+Sensor configurations and metadata are stored in:
+- **Device settings**: `com.victronenergy.settings` at `/Settings/Devices/seelevel_monitor/` for device registration (ClassAndVrmInstance, CustomName)
+- **Sensor metadata**: JSON file at `/data/apps/dbus-seelevel/sensors.json` for dynamically discovered sensor information (MAC, TypeID, Num, Name, Type, RelayID, Enabled)
 
-All configuration is managed automatically by Venus OS and persists across reboots - no manual editing required.
+The JSON file is automatically managed by the service and persists across reboots. No manual editing required.
 
 ## Service Management
 
@@ -279,14 +278,8 @@ The service will:
 To reset all discovered sensors and start fresh:
 
 ```bash
-# Stop the service
-svc -d /service/dbus-seelevel
-
-# Remove persisted sensor metadata from D-Bus
-# (Venus OS will clean this up automatically when the service is stopped)
-
-# Restart the service
-svc -u /service/dbus-seelevel
+rm /data/apps/dbus-seelevel/sensors.json
+svc -t /service/dbus-seelevel
 ```
 
 Sensors will be re-discovered automatically when BLE advertisements are received.
