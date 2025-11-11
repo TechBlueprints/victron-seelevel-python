@@ -115,13 +115,15 @@ class DBusAdvertisementScanner(BLEScanner):
         DBusGMainLoop(set_as_default=True)
         
         self.bus = dbus.SystemBus()
-        bus_name = dbus.service.BusName(f'com.victronenergy.{self.service_name}', self.bus)
+        
+        # Use the router's bus name for registration objects
+        router_bus_name = dbus.service.BusName('com.victronenergy.switch.ble_router', self.bus)
         
         # Register for manufacturer IDs only
         # The router will filter by enabled/disabled device toggles in the UI
         for mfg_id in self.manufacturer_ids:
             path = f'/ble_advertisements/{self.service_name}/mfgr/{mfg_id}'
-            obj = dbus.service.Object(bus_name, path)
+            obj = dbus.service.Object(router_bus_name, path)
             self.registration_objects.append(obj)
             logger.info(f"  Registered interest in manufacturer ID: 0x{mfg_id:04X} at {path}")
         

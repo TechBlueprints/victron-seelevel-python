@@ -125,42 +125,14 @@ class SeeLevelSensor:
             self.service.add_path('/Remaining', 0)
             self.service.add_path('/FluidType', fluid_type or 0)
         
-        # Add SwitchableOutput paths for enable/disable control
-        # Default enabled state: tanks and temperatures enabled, battery disabled
-        default_enabled = 1 if (role in ["tank", "temperature"]) else 0
-        
-        self.service.add_path('/SwitchableOutput/0/Name', device_name)
-        self.service.add_path('/SwitchableOutput/0/Type', 1)  # Toggle switch
-        self.service.add_path('/SwitchableOutput/0/State', default_enabled, writeable=True,
-                              onchangecallback=self._on_enabled_changed)
-        self.service.add_path('/SwitchableOutput/0/Status', 0x00)  # OK
-        self.service.add_path('/SwitchableOutput/0/Current', 0)
-        
-        # Settings
-        self.service.add_path('/SwitchableOutput/0/Settings/CustomName', device_name, writeable=True)
-        self.service.add_path('/SwitchableOutput/0/Settings/Type', 1)
-        self.service.add_path('/SwitchableOutput/0/Settings/Group', 0)
-        self.service.add_path('/SwitchableOutput/0/Settings/ShowUIControl', 1)
-        self.service.add_path('/SwitchableOutput/0/Settings/PowerOnState', default_enabled)
-        
         self.service_name = service_name
-        self.enabled = bool(default_enabled)
+        self.sensor_type_id = sensor_type_id
+        self.sensor_num = sensor_num
+        self.registered = False
         
-        # Register immediately so the switch is visible even if sensor is disabled
+        # Register the service immediately
         self.service.register()
-
-    def _on_enabled_changed(self, path: str, value):
-        """Handle enabled state changes"""
-        # Convert value to bool (handle both int and string)
-        new_enabled = bool(int(value) if isinstance(value, str) else value)
-        
-        if self.enabled != new_enabled:
-            self.enabled = new_enabled
-            # Per D-Bus documentation: when State is invalid, the UI element should not be shown
-            # So we don't need to change Connected or clear values - just let the disabled state
-            # prevent updates via the update() method
-        
-        return True
+        self.registered = True
     
     def _on_capacity_changed(self, path: str, value):
         """Handle capacity changes and update Remaining"""
@@ -230,10 +202,6 @@ class SeeLevelSensor:
 
     def update(self, sensor_value: int, alarm_state: int = None):
         """Update DBus paths with new value and optional alarm"""
-        # Skip updates if sensor is disabled
-        if not self.enabled:
-            return
-        
         if (self.sensor_type_id == 0 and self.sensor_num == 13) or (self.sensor_type_id == 1 and self.sensor_num == 8):  # Battery
             # Both BTP3 and BTP7: voltage × 10
             voltage = sensor_value / 10.0
@@ -255,11 +223,6 @@ class SeeLevelSensor:
             self.service['/Alarm'] = alarm_state
         
         self.service['/Status'] = 0
-        
-        # Register on first update
-        if not self.registered:
-            self.service.register()
-            self.registered = True
 
     def run(self):
         """Run the sensor process"""

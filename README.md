@@ -196,10 +196,10 @@ Press Ctrl+C to stop watching the logs.
 ## File Locations
 
 - **Scripts**: `/data/apps/dbus-seelevel/data/dbus-seelevel-*.py`
-- **Configuration**: `/data/apps/dbus-seelevel/sensors.json` (auto-managed)
 - **Service**: `/opt/victronenergy/service/dbus-seelevel/` (persists across reboots)
 - **Service Symlink**: `/service/dbus-seelevel/` (automatically recreated on boot)
 - **Logs**: `/var/log/dbus-seelevel/`
+- **Settings**: Stored in `com.victronenergy.settings` and on D-Bus switch object paths
 
 ## Configuration
 
@@ -227,7 +227,12 @@ Once discovered, sensors persist across reboots and can be individually enabled/
 
 ### Persistent Storage
 
-Sensor configurations are stored in `/data/apps/dbus-seelevel/sensors.json`. This file is automatically managed by the service and should not be manually edited.
+Sensor configurations and metadata are stored in D-Bus:
+- **Device settings**: `/Settings/Devices/seelevel_monitor/` in `com.victronenergy.settings`
+- **Sensor metadata**: `/SwitchableOutput/relay_X/Sensor*` paths on the `com.victronenergy.switch.seelevel_monitor` service
+- **Switch states**: Automatically persisted by Venus OS when you toggle switches in the GUI
+
+All configuration is managed automatically - no manual editing required.
 
 ## Service Management
 
@@ -271,11 +276,17 @@ The service will:
 
 ### Resetting Sensor Configuration
 
-To reset all discovered sensors:
+To reset all discovered sensors and start fresh:
 
 ```bash
-rm /data/apps/dbus-seelevel/sensors.json
-svc -t /service/dbus-seelevel
+# Stop the service
+svc -d /service/dbus-seelevel
+
+# Remove persisted sensor metadata from D-Bus
+# (Venus OS will clean this up automatically when the service is stopped)
+
+# Restart the service
+svc -u /service/dbus-seelevel
 ```
 
 Sensors will be re-discovered automatically when BLE advertisements are received.
@@ -291,9 +302,8 @@ svc -d /service/dbus-seelevel
 # Remove the service directory
 rm -rf /service/dbus-seelevel
 
-# Remove the scripts and configs (optional)
+# Remove the scripts (optional)
 rm -f /data/apps/dbus-seelevel/data/dbus-seelevel-*.py
-rm -rf /data/apps/dbus-seelevel/config
 
 # Remove the logs (optional)
 rm -rf /var/log/dbus-seelevel
@@ -303,9 +313,9 @@ rm -rf /var/log/dbus-seelevel
 
 For issues or questions:
 - Check the logs: `/var/log/dbus-seelevel/current`
-- Review configuration files: `/data/apps/dbus-seelevel/config/*.json`
 - Verify Bluetooth is working on your Cerbo GX
 - Ensure your SeeLevel 709-BT is powered on and broadcasting
+- Confirm `dbus-ble-advertisements` router is running
 
 ---
 
