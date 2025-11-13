@@ -120,6 +120,8 @@ class SeeLevelService:
         self.switch_service.add_path('/ProductId', 0xFFFF)
         self.switch_service.add_path('/ProductName', 'SeeLevel Monitor')
         self.switch_service.add_path('/CustomName', 'SeeLevel Monitor', writeable=True)
+        self.switch_service.add_path('/FirmwareVersion', '1.0.1')
+        self.switch_service.add_path('/HardwareVersion', None)
         self.switch_service.add_path('/Connected', 1)
         self.switch_service.add_path('/State', 0x100)  # Connected state
         
