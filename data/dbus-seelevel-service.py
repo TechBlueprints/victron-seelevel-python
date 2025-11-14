@@ -113,31 +113,33 @@ class SeeLevelService:
         self.switch_service = VeDbusService('com.victronenergy.switch.seelevel_monitor', self.bus, register=False)
         
         # Add mandatory paths
-        self.switch_service.add_path('/Mgmt/ProcessName', 'dbus-seelevel')
+        self.switch_service.add_path('/Mgmt/ProcessName', __file__)
         self.switch_service.add_path('/Mgmt/ProcessVersion', '1.0.1')
-        self.switch_service.add_path('/Mgmt/Connection', 'Bluetooth LE')
+        self.switch_service.add_path('/Mgmt/Connection', 'SeeLevel Monitor')
         self.switch_service.add_path('/DeviceInstance', 100)
         self.switch_service.add_path('/ProductId', 0xFFFF)
         self.switch_service.add_path('/ProductName', 'SeeLevel Monitor')
-        self.switch_service.add_path('/CustomName', 'SeeLevel Monitor', writeable=True)
+        self.switch_service.add_path('/CustomName', 'SeeLevel Monitor')
         self.switch_service.add_path('/FirmwareVersion', '1.0.1')
         self.switch_service.add_path('/HardwareVersion', None)
         self.switch_service.add_path('/Connected', 1)
         self.switch_service.add_path('/State', 0x100)  # Connected state
         
-        # Add master "SeeLevel Config" switch (relay_0)
+        # Add master "SeeLevel Discovery" switch (relay_0)
         self.config_enabled = True  # Default to enabled so switches are visible
-        self.switch_service.add_path('/SwitchableOutput/relay_0/Name', 'SeeLevel Config')
+        self.switch_service.add_path('/SwitchableOutput/relay_0/Name', '* SeeLevel Discovery')
         self.switch_service.add_path('/SwitchableOutput/relay_0/Type', 1)  # Toggle switch
         self.switch_service.add_path('/SwitchableOutput/relay_0/State', 1, 
                                      writeable=True, onchangecallback=self._on_config_switch_changed)
         self.switch_service.add_path('/SwitchableOutput/relay_0/Status', 0x00)
         self.switch_service.add_path('/SwitchableOutput/relay_0/Current', 0)
-        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/CustomName', 'SeeLevel Config', writeable=True)
-        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/Type', 1)
-        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/Group', 0)
-        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/ShowUIControl', 1)
-        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/PowerOnState', 1)
+        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/CustomName', '', writeable=True)
+        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/Type', 1, writeable=True)
+        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/ValidTypes', 2)
+        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/Function', 2, writeable=True)
+        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/ValidFunctions', 4)
+        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/Group', '', writeable=True)
+        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/ShowUIControl', 1, writeable=True)
         
         # Load persisted sensors from settings
         self._load_discovered_sensors()
@@ -148,12 +150,6 @@ class SeeLevelService:
             "ClassAndVrmInstance": [
                 "/Settings/Devices/seelevel_monitor/ClassAndVrmInstance",
                 "switch:100",
-                0,
-                0,
-            ],
-            "CustomName": [
-                "/Settings/Devices/seelevel_monitor/CustomName",
-                "SeeLevel Monitor",
                 0,
                 0,
             ],
@@ -217,10 +213,12 @@ class SeeLevelService:
         """Handle config switch state changes - show/hide all sensor switches"""
         new_enabled = bool(int(value) if isinstance(value, str) else value)
         
+        logging.info(f"Config switch changed: new_enabled={new_enabled}, old={self.config_enabled}")
+        
         if self.config_enabled != new_enabled:
             self.config_enabled = new_enabled
             
-            # Update ShowUIControl for all sensor switches
+            # Update ShowUIControl for all sensor switches (relay_1 and above)
             show_value = 1 if new_enabled else 0
             for sensor_key, sensor_info in self.discovered_sensors.items():
                 relay_id = sensor_info.get('relay_id')
@@ -228,10 +226,19 @@ class SeeLevelService:
                     output_path = f'/SwitchableOutput/relay_{relay_id}/Settings/ShowUIControl'
                     try:
                         self.switch_service[output_path] = show_value
-                    except:
-                        pass
+                        logging.debug(f"Set {output_path} = {show_value}")
+                    except Exception as e:
+                        logging.error(f"Failed to set {output_path}: {e}")
             
-            logging.info(f"SeeLevel Config {'enabled' if new_enabled else 'disabled'} - sensor switches {'visible' if new_enabled else 'hidden'}")
+            # Also hide/show the discovery switch itself when disabled
+            if not new_enabled:
+                try:
+                    self.switch_service['/SwitchableOutput/relay_0/Settings/ShowUIControl'] = 0
+                    logging.debug("Hidden relay_0 (discovery switch)")
+                except Exception as e:
+                    logging.error(f"Failed to hide relay_0: {e}")
+            
+            logging.info(f"SeeLevel Discovery {'enabled' if new_enabled else 'disabled'} - sensor switches {'visible' if new_enabled else 'hidden'}")
         
         return True
     
@@ -260,11 +267,14 @@ class SeeLevelService:
         self.switch_service.add_path(f'{output_path}/Status', 0x00)  # OK
         self.switch_service.add_path(f'{output_path}/Current', 0)
         
-        # Settings
-        self.switch_service.add_path(f'{output_path}/Settings/CustomName', sensor_info['name'], writeable=True)
-        self.switch_service.add_path(f'{output_path}/Settings/Type', 1)
-        self.switch_service.add_path(f'{output_path}/Settings/Group', 0)
-        self.switch_service.add_path(f'{output_path}/Settings/ShowUIControl', show_ui)
+        # Settings - match relay_0 structure exactly
+        self.switch_service.add_path(f'{output_path}/Settings/CustomName', '', writeable=True)
+        self.switch_service.add_path(f'{output_path}/Settings/Type', 1, writeable=True)
+        self.switch_service.add_path(f'{output_path}/Settings/ValidTypes', 2)
+        self.switch_service.add_path(f'{output_path}/Settings/Function', 2, writeable=True)
+        self.switch_service.add_path(f'{output_path}/Settings/ValidFunctions', 4)
+        self.switch_service.add_path(f'{output_path}/Settings/Group', '', writeable=True)
+        self.switch_service.add_path(f'{output_path}/Settings/ShowUIControl', show_ui, writeable=True)
         self.switch_service.add_path(f'{output_path}/Settings/PowerOnState', 1 if sensor_info['enabled'] else 0)
         
         logging.info(f"Created switch for {sensor_info['name']} at {output_path}, enabled={sensor_info['enabled']}")
