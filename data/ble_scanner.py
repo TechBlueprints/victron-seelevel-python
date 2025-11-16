@@ -134,7 +134,7 @@ class DBusAdvertisementScanner(BLEScanner):
         self._signal_match = self.bus.add_signal_receiver(
             self._dbus_advertisement_callback,
             signal_name='Advertisement',
-            dbus_interface='com.victronenergy.ble.Advertisements',
+            dbus_interface='com.techblueprints.BleAdvertisements',
             bus_name='com.victronenergy.switch.ble_router'
         )
         
