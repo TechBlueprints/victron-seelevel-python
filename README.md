@@ -203,9 +203,20 @@ Press Ctrl+C to stop watching the logs.
 
 ## Configuration
 
-Sensors are automatically discovered from BLE advertisements and configured via the Venus OS GUI:
+Sensors are automatically discovered from BLE advertisements and configured via the Venus OS GUI.
 
 ### Enabling/Disabling Sensors
+
+Navigate to **Settings → Switches → SeeLevel Sensor Control** to manage your sensors:
+
+![SeeLevel Switches](screenshots/seelevel-switches.png)
+
+*SeeLevel Sensor Control showing discovered sensors. Each sensor can be individually enabled or disabled.*
+
+**Key features:**
+- **Individual sensor control** - Enable/disable Fresh Water, Black Water, Gray Water, Temperature, and Battery sensors
+- **Persistent settings** - Sensor states are saved and persist across reboots
+- **MAC address identification** - Each sensor shows its source MAC address for easy identification
 
 1. Navigate to **Settings → Switches** in the Venus OS GUI
 2. Find the **SeeLevel Sensor Control** device
@@ -215,6 +226,22 @@ Sensors are automatically discovered from BLE advertisements and configured via 
 - **Tank sensors**: Enabled by default
 - **Temperature sensors**: Enabled by default
 - **Battery monitor**: Disabled by default
+
+### How to Re-enable Hidden Sensors
+
+If a sensor toggle has been hidden from the UI, you can re-enable it:
+
+1. Navigate to **Settings → Switches → SeeLevel Sensor Control**
+2. Tap the **gear/settings icon** on the sensor you want to make visible
+3. Enable **"Show controls"**
+
+![SeeLevel Show Controls Setting](screenshots/seelevel-show-controls-setting.png)
+
+*The settings page for a SeeLevel sensor. Enable "Show controls" to make the sensor toggle visible in the main switches screen.*
+
+Once enabled, the sensor toggle will be visible in the main switches screen, allowing you to enable or disable data collection for that specific sensor.
+
+**Note:** This same process applies to all switch-based services including BLE Router and SmartShunt Aggregator.
 
 ### Sensor Discovery
 
