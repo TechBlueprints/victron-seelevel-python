@@ -13,55 +13,44 @@ This approach follows the pattern used by Victron's own [dbus-serialbattery](htt
 
 ## Bundled Libraries
 
-### Bleak (v0.22.3)
-- **Purpose**: Bluetooth Low Energy (BLE) communication
-- **Source**: https://github.com/hbldh/bleak
-- **License**: MIT
-- **Why needed**: Communicates with SeeLevel tank sensors via BLE
-
-###pycryptodome (Crypto module)
-- **Purpose**: Cryptographic operations for BLE advertisement decryption
-- **Source**: https://github.com/Legrandin/pycryptodome
-- **License**: BSD/Public Domain
-- **Why needed**: Decrypts encrypted Victron BLE instant readout data
-
-### victron-ble (v0.8.0)
-- **Purpose**: Victron BLE protocol decoder
-- **Source**: https://github.com/keshavdv/victron-ble  
-- **License**: MIT
-- **Why needed**: Parses Victron-specific BLE advertisement formats
-
 ### velib_python
 - **Purpose**: Venus OS D-Bus integration library
 - **Source**: https://github.com/victronenergy/velib_python
 - **License**: MIT
-- **Why needed**: Publishes data to Venus OS D-Bus for GUI/VRM integration
+- **Why needed**: Publishes SeeLevel tank sensor data to Venus OS D-Bus for GUI/VRM integration
+
+## Architecture Note
+
+This service uses the [dbus-ble-advertisements](https://github.com/techblueprints/dbus-ble-advertisements) router for BLE scanning. It does **not** directly interact with Bluetooth hardware - all BLE advertisements are received via D-Bus signals from the router service.
+
+The SeeLevel protocol uses simple manufacturer data parsing (Cypress ID 305, SeeLevel ID 3264) and does not require encryption libraries.
 
 ## Updating Dependencies
 
-To update a bundled library:
+To update velib_python:
 
-1. Install the desired version locally:
+1. Clone the latest version:
    ```bash
-   pip install bleak==0.22.3 --target=/tmp/deps
+   git clone https://github.com/victronenergy/velib_python /tmp/velib_python
    ```
 
 2. Copy to `data/ext/`:
    ```bash
-   cp -r /tmp/deps/bleak data/ext/
+   cp -r /tmp/velib_python data/ext/
    ```
 
 3. Test on Venus OS to ensure compatibility
 
-4. Update this file with the new version
+4. Update this file with the new commit/version
 
 ## For Developers
 
-When developing locally, you can install dependencies normally:
+When developing locally, you can install velib_python from source:
 
 ```bash
-pip install bleak pycryptodome victron-ble
+git clone https://github.com/victronenergy/velib_python
+export PYTHONPATH="${PYTHONPATH}:$(pwd)/velib_python"
 ```
 
-The code will preferentially import from `data/ext/` when running on Venus OS, falling back to system packages for local development.
+The code will preferentially import from `data/ext/velib_python/` when running on Venus OS.
 
