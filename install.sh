@@ -90,7 +90,7 @@ chmod +x "$INSTALL_DIR/service/log/run"
 
 # Add to rc.local to persist across reboots
 RC_LOCAL="/data/rc.local"
-RC_ENTRY="bash $INSTALL_DIR/install-reboot.sh > $INSTALL_DIR/startup.log 2>&1 &"
+RC_ENTRY="ln -sf $INSTALL_DIR/service /service/dbus-seelevel"
 SERVICE_LINK="/service/dbus-seelevel"
 
 if [ ! -f "$RC_LOCAL" ]; then
@@ -98,20 +98,6 @@ if [ ! -f "$RC_LOCAL" ]; then
     echo "#!/bin/bash" > "$RC_LOCAL"
     chmod 755 "$RC_LOCAL"
 fi
-
-# Create a simple reboot script that just recreates the symlink
-cat > "$INSTALL_DIR/install-reboot.sh" << 'REBOOT_SCRIPT'
-#!/bin/bash
-# Recreate service symlink on reboot
-INSTALL_DIR="/data/apps/dbus-seelevel"
-SERVICE_LINK="/service/dbus-seelevel"
-
-if [ ! -L "$SERVICE_LINK" ]; then
-    ln -s "$INSTALL_DIR/service" "$SERVICE_LINK"
-fi
-REBOOT_SCRIPT
-
-chmod +x "$INSTALL_DIR/install-reboot.sh"
 
 if ! grep -qF "$RC_ENTRY" "$RC_LOCAL"; then
     echo "Adding service to rc.local for persistence across reboots..."
@@ -129,7 +115,7 @@ if [ -L "/service/dbus-seelevel" ]; then
     rm /service/dbus-seelevel
 fi
 
-ln -s "$INSTALL_DIR/service" /service/dbus-seelevel
+ln -sf "$INSTALL_DIR/service" /service/dbus-seelevel
 
 echo ""
 echo "=========================================="
