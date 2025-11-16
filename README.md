@@ -2,16 +2,19 @@
 
 Python-based Bluetooth integration for SeeLevel 709-BT sensors on Victron Venus OS. Interactive discovery tool and DBus service for monitoring RV tank levels, temperatures, and battery voltage on Cerbo GX devices.
 
+> **📡 Requires `dbus-ble-advertisements` router service** - This version uses centralized BLE management. For standalone operation, see the `legacy-standalone-btmon` branch.
+
 > **Note**: This Python implementation was created as a workaround for users who cannot build the C version. If [Pull Request #11](https://github.com/victronenergy/dbus-ble-sensors/pull/11) (addressing [Issue #1508](https://github.com/victronenergy/venus/issues/1508)) is accepted into the official Victron firmware, this package will no longer be needed as native SeeLevel support will be included in Venus OS.
 
 ## Overview
 
 This Python implementation provides an alternative to the C daemon while users are waiting for Victron to accept the PR. It features:
 
-- **Interactive Discovery Tool** - Scan for and configure sensors with guided prompts
-- **Multi-Process Architecture** - Separate process for each sensor for stability
+- **Automatic Sensor Discovery** - Sensors are automatically discovered from BLE advertisements
+- **UI-Based Configuration** - Enable/disable sensors via the Venus OS Switches panel
+- **Multi-Process Architecture** - Separate process for each enabled sensor for stability
 - **Automatic DBus Integration** - Sensors appear automatically in Victron UI and VRM
-- **Persistent Configuration** - JSON-based config files for easy customization
+- **Persistent Configuration** - Sensor states persist across reboots
 - **Daemontools Service** - Auto-start on boot with automatic restart on failure
 
 ## Supported Sensors
@@ -25,9 +28,9 @@ This Python implementation provides an alternative to the C daemon while users a
 ```
 victron-seelevel-python/
 ├── data/
-│   ├── dbus-seelevel-discover.py    # Interactive discovery tool
-│   ├── dbus-seelevel-service.py     # Main service daemon
-│   └── dbus-seelevel-sensor.py      # Individual sensor process
+│   ├── dbus-seelevel-service.py     # Main service daemon (creates switch device)
+│   ├── dbus-seelevel-sensor.py      # Individual sensor process
+│   └── ble_scanner.py               # BLE scanner interface
 ├── service/
 │   ├── run                          # Daemontools service script
 │   └── log/
@@ -45,16 +48,31 @@ victron-seelevel-python/
 ## Quick Start
 
 1. [Enable SSH](#enable-ssh-access) on your Cerbo GX
-2. Copy files: `scp -r data service root@<cerbo-ip>:/data/apps/dbus-seelevel/`
-3. Run discovery: `ssh root@<cerbo-ip> 'python3 /data/apps/dbus-seelevel/data/apps/dbus-seelevel/data/dbus-seelevel-discover.py'`
+2. Install `dbus-ble-advertisements` router service (required)
+3. Copy files: `scp -r data service root@<cerbo-ip>:/data/apps/dbus-seelevel/`
 4. Create symlink: `ssh root@<cerbo-ip> 'ln -sf /data/apps/dbus-seelevel/service /service/dbus-seelevel'`
 5. Verify running: `ssh root@<cerbo-ip> 'svstat /service/dbus-seelevel'`
+6. Enable sensors in Venus OS: **Settings → Switches → SeeLevel Sensor Control**
 
 See the [Installation Guide](#installation-guide) below for detailed steps.
 
 ---
 
 # Installation Guide
+
+## Prerequisites
+
+**⚠️ IMPORTANT: This service requires `dbus-ble-advertisements` to be installed first!**
+
+Before installing this service, you must install the `dbus-ble-advertisements` router service:
+
+👉 **[Install dbus-ble-advertisements first](https://github.com/TechBlueprints/dbus-ble-advertisements)**
+
+The router service provides centralized BLE management for all Victron BLE services. Without it, this service will not work.
+
+> **Alternative**: If you prefer standalone operation without the router, use the **[legacy-standalone-btmon](https://github.com/TechBlueprints/victron-seelevel-python/tree/legacy-standalone-btmon)** branch instead.
+
+---
 
 ## Enable SSH Access
 
@@ -104,34 +122,12 @@ scp -r data service root@<cerbo-ip-address>:/data/apps/dbus-seelevel/
 On the Cerbo GX:
 
 ```bash
-chmod +x /data/apps/dbus-seelevel/data/apps/dbus-seelevel/data/dbus-seelevel-*.py
+chmod +x /data/apps/dbus-seelevel/data/dbus-seelevel-*.py
 chmod +x /data/apps/dbus-seelevel/service/run
 chmod +x /data/apps/dbus-seelevel/service/log/run
 ```
 
-### 4. Run Discovery to Configure Your Sensors
-
-```bash
-python3 /data/apps/dbus-seelevel/data/apps/dbus-seelevel/data/dbus-seelevel-discover.py
-```
-
-This interactive script will:
-- Scan for SeeLevel sensors
-- Prompt you to configure each sensor found:
-  - Choose whether to add it (yes/no/disabled)
-  - Set a custom name
-  - For tanks: Set capacity in gallons
-- Create configuration files in `/data/apps/dbus-seelevel/config/`
-- Ask if you want to continue scanning after each sensor
-
-**Tips:**
-- Press Ctrl+C at any prompt to exit immediately
-- The script will prompt if no sensors found for 30 seconds
-- Battery sensors default to disabled
-- Disconnected sensors (OPN) default to disabled
-- You can re-run discovery later; it will ask if you want to reconfigure existing sensors
-
-### 5. Test the Service
+### 4. Test the Service
 
 Before setting it up as a permanent service, test it manually:
 
@@ -141,38 +137,38 @@ python3 /data/apps/dbus-seelevel/data/dbus-seelevel-service.py
 
 You should see output like:
 ```
-2025-10-05 02:19:24,942 - SeeLevel 709-BT Service v1.0
-2025-10-05 02:19:24,950 - Loaded config: Fresh Water (00:A0:50:8D:95:69)
-2025-10-05 02:19:24,952 - Loaded config: Waste Water (00:A0:50:8D:95:69)
-2025-10-05 02:19:24,955 - Loaded config: Gray Water (00:A0:50:8D:95:69)
-2025-10-05 02:19:24,959 - Loaded 3 enabled sensor(s)
-2025-10-05 02:19:24,966 - Started btmon
-2025-10-05 02:19:24,974 - Service running...
+2025-11-10 12:00:00 - SeeLevel 709-BT Service v1.0
+2025-11-10 12:00:00 - No persisted sensors found, starting fresh
+2025-11-10 12:00:00 - Waiting for BLE advertisements...
+2025-11-10 12:00:05 - Discovered sensor: Fresh Water (C8:74:7A) (enabled=True)
+2025-11-10 12:00:05 - Created switch for sensor: Fresh Water (C8:74:7A) (relay_f0c6dcc8747a_00)
+2025-11-10 12:00:06 - Discovered sensor: Waste Water (C8:74:7A) (enabled=True)
 ```
 
-Check your Cerbo UI - you should see your sensors appearing with live data. Press Ctrl+C to stop the test.
+As sensors are discovered, they will:
+1. Appear in **Settings → Switches → SeeLevel Sensor Control**
+2. Start reporting data automatically (if enabled)
+3. Show up in the Tanks/Temperature sections of the UI
 
-### 6. Install as a Permanent Service
+Press Ctrl+C to stop the test.
 
-Copy the service files to the persistent location and create a symlink:
+### 5. Install as a Permanent Service
+
+Create the service symlink and add to `/data/rc.local` for persistence:
 
 ```bash
-scp -r service root@<cerbo-ip-address>:/opt/victronenergy/service/dbus-seelevel
+# Create the service symlink
+ssh root@<cerbo-ip-address> 'ln -sf /data/apps/dbus-seelevel/service /service/dbus-seelevel'
+
+# Add to rc.local for persistence across reboots
+ssh root@<cerbo-ip-address> 'echo "ln -sf /data/apps/dbus-seelevel/service /service/dbus-seelevel" >> /data/rc.local && chmod +x /data/rc.local'
 ```
 
-This copies the pre-configured service directory structure including:
-- `/opt/victronenergy/service/dbus-seelevel/run` - Main service script
-- `/opt/victronenergy/service/dbus-seelevel/log/run` - Log management script
+The service will start automatically within a few seconds. The symlink will be recreated automatically on each boot via `/data/rc.local`.
 
-Make the service scripts executable and create the symlink:
+**Note:** This approach does not require root filesystem remount, as all changes are made to `/data/` which is always writable.
 
-```bash
-ssh root@<cerbo-ip-address> 'chmod +x /opt/victronenergy/service/dbus-seelevel/run /opt/victronenergy/service/dbus-seelevel/log/run && ln -sf /opt/victronenergy/service/dbus-seelevel /service/dbus-seelevel'
-```
-
-The service will start automatically within a few seconds. The files in `/opt/victronenergy/service/` persist across reboots, and the symlink to `/service/` is automatically recreated on each boot.
-
-### 7. Verify the Service is Running
+### 6. Verify the Service is Running
 
 Check the service status:
 
@@ -195,39 +191,72 @@ Press Ctrl+C to stop watching the logs.
 
 ## File Locations
 
+- **Installation Directory**: `/data/apps/dbus-seelevel/`
 - **Scripts**: `/data/apps/dbus-seelevel/data/dbus-seelevel-*.py`
-- **Configuration**: `/data/apps/dbus-seelevel/config/*.json`
-- **Service**: `/opt/victronenergy/service/dbus-seelevel/` (persists across reboots)
-- **Service Symlink**: `/service/dbus-seelevel/` (automatically recreated on boot)
+- **Service Directory**: `/data/apps/dbus-seelevel/service/`
+- **Service Symlink**: `/service/dbus-seelevel/` (created via `/data/rc.local` on boot)
+- **Persistence**: `/data/rc.local` (ensures symlink is recreated after reboot)
 - **Logs**: `/var/log/dbus-seelevel/`
+- **Settings**: Stored in `/data/apps/dbus-seelevel/data/sensors.json` and on D-Bus switch object paths
 
-## Configuration Files
+## Configuration
 
-Each sensor gets its own JSON configuration file in `/data/apps/dbus-seelevel/config/`. Example:
+Sensors are automatically discovered from BLE advertisements and configured via the Venus OS GUI.
 
-**`/data/apps/dbus-seelevel/config/fresh-water.json`:**
-```json
-{
-  "mac": "00:A0:50:8D:95:69",
-  "sensor_num": 0,
-  "sensor_type": "Fresh Water",
-  "custom_name": "Fresh Water",
-  "enabled": true,
-  "discovered": "2025-10-05 01:22:14",
-  "tank_capacity_gallons": 50.0
-}
-```
+### Enabling/Disabling Sensors
 
-You can manually edit these files to:
-- Change `custom_name` to rename the sensor in the UI
-- Set `enabled` to `false` to disable a sensor
-- Adjust `tank_capacity_gallons` (0 = percentage only, no volume)
+Navigate to **Settings → Switches → SeeLevel Sensor Control** to manage your sensors:
 
-After editing, restart the service:
+![SeeLevel Switches](screenshots/seelevel-switches.png)
 
-```bash
-svc -t /service/dbus-seelevel
-```
+*SeeLevel Sensor Control showing discovered sensors. Each sensor can be individually enabled or disabled.*
+
+**Key features:**
+- **Individual sensor control** - Enable/disable Fresh Water, Black Water, Gray Water, Temperature, and Battery sensors
+- **Persistent settings** - Sensor states are saved and persist across reboots
+- **MAC address identification** - Each sensor shows its source MAC address for easy identification
+
+1. Navigate to **Settings → Switches** in the Venus OS GUI
+2. Find the **SeeLevel Sensor Control** device
+3. Toggle individual sensors on/off as needed
+
+**Default States:**
+- **Tank sensors**: Enabled by default
+- **Temperature sensors**: Enabled by default
+- **Battery monitor**: Disabled by default
+
+### How to Re-enable Hidden Sensors
+
+If a sensor toggle has been hidden from the UI, you can re-enable it:
+
+1. Navigate to **Settings → Switches → SeeLevel Sensor Control**
+2. Tap the **gear/settings icon** on the sensor you want to make visible
+3. Enable **"Show controls"**
+
+![SeeLevel Show Controls Setting](screenshots/seelevel-show-controls-setting.png)
+
+*The settings page for a SeeLevel sensor. Enable "Show controls" to make the sensor toggle visible in the main switches screen.*
+
+Once enabled, the sensor toggle will be visible in the main switches screen, allowing you to enable or disable data collection for that specific sensor.
+
+**Note:** This same process applies to all switch-based services including BLE Router and SmartShunt Aggregator.
+
+### Sensor Discovery
+
+Sensors are automatically discovered when:
+1. The `dbus-ble-advertisements` router detects a SeeLevel device
+2. The router has "BLE Router New Device Discovery" enabled
+3. The SeeLevel MAC address is enabled in the router's switches
+
+Once discovered, sensors persist across reboots and can be individually enabled/disabled via the Switches panel.
+
+### Persistent Storage
+
+Sensor configurations and metadata are stored in:
+- **Device settings**: `com.victronenergy.settings` at `/Settings/Devices/seelevel_monitor/` for device registration (ClassAndVrmInstance, CustomName)
+- **Sensor metadata**: JSON file at `/data/apps/dbus-seelevel/sensors.json` for dynamically discovered sensor information (MAC, TypeID, Num, Name, Type, RelayID, Enabled)
+
+The JSON file is automatically managed by the service and persists across reboots. No manual editing required.
 
 ## Service Management
 
@@ -251,15 +280,16 @@ The service will:
 
 1. Check the service is running: `svstat /service/dbus-seelevel`
 2. Check the logs: `tail -f /var/log/dbus-seelevel/current`
-3. Verify configuration files exist: `ls -la /data/apps/dbus-seelevel/config/`
-4. Ensure sensors are enabled in config files
-5. Check Bluetooth is working: `btmon` (Ctrl+C to stop)
+3. Verify `dbus-ble-advertisements` router is running: `svstat /service/dbus-ble-advertisements`
+4. Check that the SeeLevel MAC is enabled in the router: **Settings → Switches → BLE Router**
+5. Enable "BLE Router New Device Discovery" temporarily to discover sensors
+6. Check Bluetooth is working: `btmon` (Ctrl+C to stop)
 
-### Wrong Values Displayed
+### Sensors Discovered But Not Showing Data
 
-1. Check the sensor configuration in `/data/apps/dbus-seelevel/config/*.json`
-2. For wrong capacity, adjust `tank_capacity_gallons`
-3. Restart service after changes: `svc -t /service/dbus-seelevel`
+1. Check that the sensor is enabled: **Settings → Switches → SeeLevel Sensor Control**
+2. Check the logs for errors: `tail -f /var/log/dbus-seelevel/current`
+3. Verify the sensor process is running: `ps | grep dbus-seelevel-sensor`
 
 ### Service Won't Start
 
@@ -268,15 +298,16 @@ The service will:
 3. Verify scripts exist: `ls -la /data/apps/dbus-seelevel/data/dbus-seelevel-*.py`
 4. Test manually: `python3 /data/apps/dbus-seelevel/data/dbus-seelevel-service.py`
 
-### Re-running Discovery
+### Resetting Sensor Configuration
 
-You can re-run discovery at any time:
+To reset all discovered sensors and start fresh:
 
 ```bash
-python3 /data/apps/dbus-seelevel/data/dbus-seelevel-discover.py
+rm /data/apps/dbus-seelevel/sensors.json
+svc -t /service/dbus-seelevel
 ```
 
-It will detect existing configurations and ask if you want to reconfigure them.
+Sensors will be re-discovered automatically when BLE advertisements are received.
 
 ## Uninstallation
 
@@ -289,9 +320,8 @@ svc -d /service/dbus-seelevel
 # Remove the service directory
 rm -rf /service/dbus-seelevel
 
-# Remove the scripts and configs (optional)
+# Remove the scripts (optional)
 rm -f /data/apps/dbus-seelevel/data/dbus-seelevel-*.py
-rm -rf /data/apps/dbus-seelevel/config
 
 # Remove the logs (optional)
 rm -rf /var/log/dbus-seelevel
@@ -301,9 +331,9 @@ rm -rf /var/log/dbus-seelevel
 
 For issues or questions:
 - Check the logs: `/var/log/dbus-seelevel/current`
-- Review configuration files: `/data/apps/dbus-seelevel/config/*.json`
 - Verify Bluetooth is working on your Cerbo GX
 - Ensure your SeeLevel 709-BT is powered on and broadcasting
+- Confirm `dbus-ble-advertisements` router is running
 
 ---
 

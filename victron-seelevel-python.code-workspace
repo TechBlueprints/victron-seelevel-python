@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../dbus-aggregate-batteries"
+		},
+		{
+			"path": "../venus-os_dbus-serialbattery"
+		}
+	],
+	"settings": {}
+}
