@@ -102,10 +102,7 @@ class DBusAdvertisementScanner(BLEScanner):
     
     async def start(self):
         """Start D-Bus advertisement scanner by registering interests"""
-        if not self.is_available():
-            raise RuntimeError("dbus-ble-advertisements service not available")
-        
-        logger.info(f"Registering with dbus-ble-advertisements as '{self.service_name}'...")
+        logger.info(f"Attempting to register with dbus-ble-advertisements as '{self.service_name}'...")
         
         # Import GLib D-Bus mainloop integration
         from dbus.mainloop.glib import DBusGMainLoop
@@ -116,30 +113,40 @@ class DBusAdvertisementScanner(BLEScanner):
         
         self.bus = dbus.SystemBus()
         
-        # Use the router's bus name for registration objects
-        router_bus_name = dbus.service.BusName('com.victronenergy.switch.ble.advertisements', self.bus)
-        
-        # Register for manufacturer IDs only
-        # The router will filter by enabled/disabled device toggles in the UI
-        for mfg_id in self.manufacturer_ids:
-            path = f'/ble_advertisements/{self.service_name}/mfgr/{mfg_id}'
-            obj = dbus.service.Object(router_bus_name, path)
-            self.registration_objects.append(obj)
-            logger.info(f"  Registered interest in manufacturer ID: 0x{mfg_id:04X} at {path}")
-        
-        # No longer registering for specific MAC addresses - router handles device filtering
-        
-        # Subscribe to Advertisement signals on our paths
-        # The router will emit signals on paths that match our registrations
-        self._signal_match = self.bus.add_signal_receiver(
-            self._dbus_advertisement_callback,
-            signal_name='Advertisement',
-            dbus_interface='com.techblueprints.ble.Advertisements',
-            bus_name='com.victronenergy.switch.ble.advertisements'
-        )
-        
-        self.running = True
-        logger.info("D-Bus advertisement scanner started and listening for signals")
+        # Create registration objects optimistically
+        # Even if router isn't running, these paths will exist for when it does start
+        try:
+            # Use the router's bus name for registration objects
+            router_bus_name = dbus.service.BusName('com.victronenergy.switch.ble.advertisements', self.bus)
+            
+            # Register for manufacturer IDs only
+            # The router will filter by enabled/disabled device toggles in the UI
+            for mfg_id in self.manufacturer_ids:
+                path = f'/ble_advertisements/{self.service_name}/mfgr/{mfg_id}'
+                obj = dbus.service.Object(router_bus_name, path)
+                self.registration_objects.append(obj)
+                logger.info(f"  Registered interest in manufacturer ID: 0x{mfg_id:04X} at {path}")
+            
+            # No longer registering for specific MAC addresses - router handles device filtering
+            
+            # Subscribe to Advertisement signals on our paths
+            # The router will emit signals on paths that match our registrations
+            self._signal_match = self.bus.add_signal_receiver(
+                self._dbus_advertisement_callback,
+                signal_name='Advertisement',
+                dbus_interface='com.techblueprints.ble.Advertisements',
+                bus_name='com.victronenergy.switch.ble.advertisements'
+            )
+            
+            self.running = True
+            logger.info("D-Bus advertisement scanner started and listening for signals")
+            
+        except Exception as e:
+            logger.warning(f"Failed to register with dbus-ble-advertisements: {e}")
+            logger.warning("BLE scanning will be disabled. Service will continue without BLE.")
+            logger.info("Install dbus-ble-advertisements from: https://github.com/TechBlueprints/dbus-ble-advertisements")
+            # Don't raise - service can continue without BLE
+            self.running = False
     
     def _dbus_advertisement_callback(self, mac, manufacturer_id, data, rssi, interface, name):
         """Callback for D-Bus Advertisement signals"""
@@ -184,22 +191,15 @@ def create_scanner(advertisement_callback: Callable,
     
     This version only supports dbus-ble-advertisements router.
     For standalone operation, see the legacy-standalone-btmon branch.
+    
+    Returns a scanner that will attempt to connect to the router.
+    If router is not available, scanner will be in disabled state but service continues.
     """
-    # Try D-Bus scanner
-    logger.info("Checking for dbus-ble-advertisements service...")
-    dbus_scanner = DBusAdvertisementScanner(
+    # Always return D-Bus scanner - it handles unavailability gracefully
+    logger.info("Creating D-Bus advertisement scanner...")
+    return DBusAdvertisementScanner(
         advertisement_callback=advertisement_callback,
         service_name=service_name,
         manufacturer_ids=manufacturer_ids,
         mac_addresses=mac_addresses
-    )
-    
-    if dbus_scanner.is_available():
-        logger.info("Using D-Bus advertisement scanner")
-        return dbus_scanner
-    
-    # No scanner available
-    raise RuntimeError(
-        "dbus-ble-advertisements service not available. "
-        "Please install and start dbus-ble-advertisements, or use the legacy-standalone-btmon branch."
     )
