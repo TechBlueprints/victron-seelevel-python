@@ -431,6 +431,10 @@ class SeeLevelService:
         if manufacturer_id not in [MFG_ID_CYPRESS, MFG_ID_SEELEVEL]:
             return
         
+        # Log all SeeLevel advertisements
+        mfg_name = "BTP7/SEELEVEL" if manufacturer_id == MFG_ID_SEELEVEL else "BTP3/CYPRESS"
+        logging.debug(f"Advertisement received: {mfg_name} from {mac} (name='{name}', rssi={rssi}dBm, len={len(data)})")
+        
         # Determine sensor type ID from manufacturer ID
         sensor_type_id = 1 if manufacturer_id == MFG_ID_SEELEVEL else 0
         
@@ -477,12 +481,16 @@ class SeeLevelService:
             self.process_sensor_update(mac, sensor_key, sensor_value, sensor_type_id, sensor_num, alarm_state)
         else:
             # BTP7: Bytes 3-10 are 8 tank sensors, byte 11 is battery voltage × 100
+            logging.debug(f"BTP7 Advertisement: MAC={mac}, hex={hex_data[:28]}")
+            
             # Process 8 tank sensors (sensor_num 0-7)
             for sensor_num in range(8):
                 sensor_key = f"{mac}_{sensor_num}"
                 
                 # Discover sensor if not already known
                 if sensor_key not in self.discovered_sensors:
+                    sensor_value = data[sensor_num+3]  # Bytes 3-10
+                    logging.info(f"Discovering NEW BTP7 sensor: MAC={mac}, sensor_num={sensor_num}, value={sensor_value}")
                     self._add_discovered_sensor(mac, sensor_type_id, sensor_num)
                 
                 sensor_value = data[sensor_num+3]  # Bytes 3-10
@@ -498,6 +506,8 @@ class SeeLevelService:
             
             # Discover sensor if not already known
             if sensor_key not in self.discovered_sensors:
+                sensor_value = data[11]  # Battery voltage × 100
+                logging.info(f"Discovering NEW BTP7 battery sensor: MAC={mac}, sensor_num={sensor_num}, voltage={sensor_value/10.0}V")
                 self._add_discovered_sensor(mac, sensor_type_id, sensor_num)
             
                 sensor_value = data[11]  # Battery voltage × 100
