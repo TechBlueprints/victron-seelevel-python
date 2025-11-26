@@ -20,6 +20,7 @@ SeeLevel Sensor Process - Minimal DBus service that accepts update commands via 
 import sys
 import json
 import os
+import logging
 
 sys.path.insert(1, '/opt/victronenergy/dbus-systemcalc-py/ext/velib_python')
 
@@ -117,15 +118,41 @@ class SeeLevelSensor:
             self.service.add_path('/Temperature', 0)
         else:  # Tank
             self.service.add_path('/Level', 0)
-            if self.tank_capacity_gallons > 0:
-                capacity_m3 = round(self.tank_capacity_gallons * 0.00378541, 3)
-                self.service.add_path('/Remaining', 0)
-                self.service.add_path('/Capacity', capacity_m3)
+            # Always create Capacity as writeable for tanks
+            capacity_m3 = round(self.tank_capacity_gallons * 0.00378541, 3) if self.tank_capacity_gallons > 0 else 0
+            self.service.add_path('/Capacity', capacity_m3, writeable=True, 
+                                  onchangecallback=self._on_capacity_changed)
+            self.service.add_path('/Remaining', 0)
             self.service.add_path('/FluidType', fluid_type or 0)
         
-        self.registered = False
         self.service_name = service_name
-
+        self.sensor_type_id = sensor_type_id
+        self.sensor_num = sensor_num
+        self.registered = False
+        
+        # Register the service immediately
+        self.service.register()
+        self.registered = True
+    
+    def _on_capacity_changed(self, path: str, value):
+        """Handle capacity changes and update Remaining"""
+        try:
+            # Convert to float
+            new_capacity_m3 = float(value)
+            
+            # Update tank_capacity_gallons for future calculations
+            self.tank_capacity_gallons = new_capacity_m3 / 0.00378541
+            
+            # Update Remaining based on current Level
+            if '/Level' in self.service:
+                current_level = self.service['/Level']
+                remaining_m3 = round(new_capacity_m3 * current_level / 100.0, 3)
+                self.service['/Remaining'] = remaining_m3
+        except (ValueError, TypeError):
+            pass
+        
+        return True
+    
     @staticmethod
     def _get_product_name(product_id: int) -> str:
         names = {
@@ -186,22 +213,16 @@ class SeeLevelSensor:
             level = sensor_value
             self.service['/Level'] = level
             
-            if self.tank_capacity_gallons > 0:
-                capacity_m3 = round(self.tank_capacity_gallons * 0.00378541, 3)
-                remaining_m3 = round(capacity_m3 * level / 100.0, 3)
-                self.service['/Capacity'] = capacity_m3
-                self.service['/Remaining'] = remaining_m3
+            # Update Remaining based on current Capacity
+            capacity_m3 = self.service['/Capacity']
+            remaining_m3 = round(capacity_m3 * level / 100.0, 3)
+            self.service['/Remaining'] = remaining_m3
         
         # Set alarm state if provided (0-9, where 0 = no alarm)
         if alarm_state is not None:
             self.service['/Alarm'] = alarm_state
         
         self.service['/Status'] = 0
-        
-        # Register on first update
-        if not self.registered:
-            self.service.register()
-            self.registered = True
 
     def run(self):
         """Run the sensor process"""
@@ -220,6 +241,13 @@ class SeeLevelSensor:
 
 
 def main():
+    # Configure logging to stdout (captured by runit)
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
     if len(sys.argv) < 4:
         sys.exit(1)
     
