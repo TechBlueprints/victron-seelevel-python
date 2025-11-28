@@ -47,14 +47,53 @@ victron-seelevel-python/
 
 ## Quick Start
 
-1. [Enable SSH](#enable-ssh-access) on your Cerbo GX
-2. Install `dbus-ble-advertisements` router service (required)
-3. Copy files: `scp -r data service root@<cerbo-ip>:/data/apps/dbus-seelevel/`
-4. Create symlink: `ssh root@<cerbo-ip> 'ln -sf /data/apps/dbus-seelevel/service /service/dbus-seelevel'`
-5. Verify running: `ssh root@<cerbo-ip> 'svstat /service/dbus-seelevel'`
-6. Enable sensors in Venus OS: Tap the **square toggle icon** (top left) to access switches
+### Recommended: One-Line Remote Install
 
-See the [Installation Guide](#installation-guide) below for detailed steps.
+The easiest way to install (including dependencies) is via remote installer:
+
+```bash
+# Via curl (run directly on your Cerbo)
+ssh root@<cerbo-ip> "curl -fsSL https://raw.githubusercontent.com/TechBlueprints/victron-seelevel-python/main/install.sh | bash"
+
+# Or via wget
+ssh root@<cerbo-ip> "wget -qO- https://raw.githubusercontent.com/TechBlueprints/victron-seelevel-python/main/install.sh | bash"
+```
+
+The installer will:
+- Automatically install dbus-ble-advertisements (required dependency)
+- Install git if needed
+- Clone or update the repository
+- Install or restart the service
+- Check discovery status and warn if disabled
+
+### Manual Installation Steps
+
+If you prefer manual installation:
+
+### Manual Installation Steps
+
+If you prefer to run the steps manually on your Cerbo:
+
+```bash
+# SSH into your Cerbo
+ssh root@<cerbo-ip>
+
+# Install git (if not already installed)
+opkg install git
+
+# Install dbus-ble-advertisements first (required dependency)
+curl -fsSL https://raw.githubusercontent.com/TechBlueprints/dbus-ble-advertisements/main/install.sh | bash
+
+# Clone the SeeLevel repository
+cd /data/apps
+git clone https://github.com/TechBlueprints/victron-seelevel-python.git dbus-seelevel
+
+# Run the service installer
+cd dbus-seelevel
+bash install-service.sh
+```
+
+See the [Detailed Installation Guide](#installation-guide) below for more information.
 
 ---
 
@@ -64,7 +103,7 @@ See the [Installation Guide](#installation-guide) below for detailed steps.
 
 **⚠️ IMPORTANT: This service requires `dbus-ble-advertisements` to be installed first!**
 
-Before installing this service, you must install the `dbus-ble-advertisements` router service:
+The one-line installer handles this automatically, but if you're installing manually, install the router service first:
 
 👉 **[Install dbus-ble-advertisements first](https://github.com/TechBlueprints/dbus-ble-advertisements)**
 
@@ -97,99 +136,11 @@ The router service provides centralized BLE management for all Victron BLE servi
 2. Select **General**
 3. Find **SSH on LAN** and enable it
 
-## Installation Steps
+---
 
-### 1. Connect to Your Cerbo GX
+## Detailed Installation Information
 
-```bash
-ssh root@<cerbo-ip-address>
-```
-
-Replace `<cerbo-ip-address>` with your Cerbo's IP address (e.g., `192.168.1.100`).
-
-### 2. Copy the Python Scripts
-
-From your local machine (in the `victron-seelevel-python` directory), copy the required files to the Cerbo:
-
-```bash
-# Create directory and copy files
-ssh root@<cerbo-ip-address> 'mkdir -p /data/apps/dbus-seelevel'
-scp -r data service root@<cerbo-ip-address>:/data/apps/dbus-seelevel/
-```
-
-### 3. Make Scripts Executable
-
-On the Cerbo GX:
-
-```bash
-chmod +x /data/apps/dbus-seelevel/data/dbus-seelevel-*.py
-chmod +x /data/apps/dbus-seelevel/service/run
-chmod +x /data/apps/dbus-seelevel/service/log/run
-```
-
-### 4. Test the Service
-
-Before setting it up as a permanent service, test it manually:
-
-```bash
-python3 /data/apps/dbus-seelevel/data/dbus-seelevel-service.py
-```
-
-You should see output like:
-```
-2025-11-10 12:00:00 - SeeLevel 709-BT Service v1.0
-2025-11-10 12:00:00 - No persisted sensors found, starting fresh
-2025-11-10 12:00:00 - Waiting for BLE advertisements...
-2025-11-10 12:00:05 - Discovered sensor: Fresh Water (C8:74:7A) (enabled=True)
-2025-11-10 12:00:05 - Created switch for sensor: Fresh Water (C8:74:7A) (relay_f0c6dcc8747a_00)
-2025-11-10 12:00:06 - Discovered sensor: Waste Water (C8:74:7A) (enabled=True)
-```
-
-As sensors are discovered, they will:
-1. Appear in **Settings → Switches → SeeLevel Sensor Control**
-2. Start reporting data automatically (if enabled)
-3. Show up in the Tanks/Temperature sections of the UI
-
-Press Ctrl+C to stop the test.
-
-### 5. Install as a Permanent Service
-
-Create the service symlink and add to `/data/rc.local` for persistence:
-
-```bash
-# Create the service symlink
-ssh root@<cerbo-ip-address> 'ln -sf /data/apps/dbus-seelevel/service /service/dbus-seelevel'
-
-# Add to rc.local for persistence across reboots
-ssh root@<cerbo-ip-address> 'echo "ln -sf /data/apps/dbus-seelevel/service /service/dbus-seelevel" >> /data/rc.local && chmod +x /data/rc.local'
-```
-
-The service will start automatically within a few seconds. The symlink will be recreated automatically on each boot via `/data/rc.local`.
-
-**Note:** This approach does not require root filesystem remount, as all changes are made to `/data/` which is always writable.
-
-### 6. Verify the Service is Running
-
-Check the service status:
-
-```bash
-svstat /service/dbus-seelevel
-```
-
-You should see something like:
-```
-/service/dbus-seelevel: up (pid 11152) 461 seconds
-```
-
-View the logs:
-
-```bash
-tail -f /var/log/dbus-seelevel/current
-```
-
-Press Ctrl+C to stop watching the logs.
-
-## File Locations
+### File Locations
 
 - **Installation Directory**: `/data/apps/dbus-seelevel/`
 - **Scripts**: `/data/apps/dbus-seelevel/data/dbus-seelevel-*.py`
