@@ -135,15 +135,15 @@ echo "TEST 4: Sensor Discovery Status"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Check if sensors.json exists
-if [ -f /data/apps/dbus-seelevel/data/sensors.json ]; then
-    SENSOR_COUNT=$(cat /data/apps/dbus-seelevel/data/sensors.json | grep -o '"mac"' | wc -l)
+if [ -f /data/apps/dbus-seelevel/sensors.json ]; then
+    SENSOR_COUNT=$(cat /data/apps/dbus-seelevel/sensors.json | grep -o '"mac"' | wc -l)
     if [ "$SENSOR_COUNT" -gt 0 ]; then
         print_pass "Found $SENSOR_COUNT previously discovered sensor(s) in sensors.json"
         
         # Show discovered sensors
         echo ""
         print_info "Discovered sensors:"
-        cat /data/apps/dbus-seelevel/data/sensors.json | grep -E '"name"|"mac"|"enabled"' | head -30
+        cat /data/apps/dbus-seelevel/sensors.json | grep -E '"name"|"mac"|"enabled"' | head -n 30
     else
         print_warn "sensors.json exists but no sensors discovered yet"
     fi
