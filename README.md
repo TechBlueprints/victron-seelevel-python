@@ -331,7 +331,7 @@ svc -u /service/dbus-seelevel
 
 ```bash
 # Check BLE Router discovery (should return 1):
-dbus -y com.victronenergy.switch.ble.advertisements /ble_advertisements/relay_0/State GetValue
+dbus -y com.victronenergy.switch.ble.advertisements /SwitchableOutput/relay_1/State GetValue
 
 # Check SeeLevel Tank discovery (should return 1):
 dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_0/State GetValue
@@ -340,7 +340,7 @@ dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_0/Stat
 If either returns `0`, enable them:
 ```bash
 # Enable BLE Router discovery:
-dbus -y com.victronenergy.switch.ble.advertisements /ble_advertisements/relay_0/State SetValue %1
+dbus -y com.victronenergy.switch.ble.advertisements /SwitchableOutput/relay_1/State SetValue %1
 
 # Enable SeeLevel Tank discovery:
 dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_0/State SetValue %1
@@ -415,7 +415,7 @@ svstat /service/dbus-seelevel
 echo ""
 echo "2. Discovery Switches (both should be 1):"
 echo -n "   BLE Router: "
-dbus -y com.victronenergy.switch.ble.advertisements /ble_advertisements/relay_0/State GetValue 2>/dev/null || echo "ERROR"
+dbus -y com.victronenergy.switch.ble.advertisements /SwitchableOutput/relay_1/State GetValue 2>/dev/null || echo "ERROR"
 echo -n "   SeeLevel:   "
 dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_0/State GetValue 2>/dev/null || echo "ERROR"
 echo ""

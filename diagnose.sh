@@ -73,13 +73,13 @@ echo "TEST 2: Discovery Switch Status"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Check BLE Router discovery
-BLE_DISCOVERY=$(dbus -y com.victronenergy.switch.ble.advertisements /ble_advertisements/relay_0/State GetValue 2>/dev/null)
+BLE_DISCOVERY=$(dbus -y com.victronenergy.switch.ble.advertisements /SwitchableOutput/relay_1/State GetValue 2>/dev/null)
 if [ "$BLE_DISCOVERY" = "1" ]; then
     print_pass "BLE Router discovery: ENABLED"
 elif [ "$BLE_DISCOVERY" = "0" ]; then
     print_warn "BLE Router discovery: DISABLED"
     echo "         Note: Discovery can be disabled after devices are found"
-    echo "         To enable: dbus -y com.victronenergy.switch.ble.advertisements /ble_advertisements/relay_0/State SetValue %1"
+    echo "         To enable: dbus -y com.victronenergy.switch.ble.advertisements /SwitchableOutput/relay_1/State SetValue %1"
 else
     print_fail "BLE Router discovery: CANNOT READ STATE"
 fi
@@ -260,7 +260,7 @@ echo "                      QUICK FIXES"
 echo "======================================================================"
 echo ""
 echo "Enable BLE Router discovery:"
-echo "  dbus -y com.victronenergy.switch.ble.advertisements /ble_advertisements/relay_0/State SetValue %1"
+echo "  dbus -y com.victronenergy.switch.ble.advertisements /SwitchableOutput/relay_1/State SetValue %1"
 echo ""
 echo "Enable SeeLevel Tank discovery:"
 echo "  dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_0/State SetValue %1"
