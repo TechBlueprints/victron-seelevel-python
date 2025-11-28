@@ -142,6 +142,7 @@ if [ -L "/service/$SERVICE_NAME" ] && svstat "/service/$SERVICE_NAME" 2>/dev/nul
 else
     echo "Service not installed or not running. Running installation..."
     bash "$INSTALL_DIR/install-service.sh"
+    FRESH_INSTALL=true
 fi
 echo ""
 
@@ -150,33 +151,38 @@ echo "Installation Complete!"
 echo "========================================"
 echo ""
 
-# Check if discoveries are enabled
-BLE_DISCOVERY=$(dbus -y com.victronenergy.switch.ble.advertisements /ble_advertisements/relay_0/State GetValue 2>/dev/null || echo "unknown")
-SEELEVEL_DISCOVERY=$(dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_0/State GetValue 2>/dev/null || echo "unknown")
-
-WARNINGS=false
-
-if [ "$BLE_DISCOVERY" = "0" ]; then
-    echo "⚠️  WARNING: BLE Router discovery is currently DISABLED"
-    WARNINGS=true
-fi
-
-if [ "$SEELEVEL_DISCOVERY" = "0" ]; then
-    echo "⚠️  WARNING: SeeLevel Tank discovery is currently DISABLED"
-    WARNINGS=true
-fi
-
-if [ "$WARNINGS" = true ]; then
-    echo ""
-    echo "For sensors to appear, BOTH discoveries must be enabled:"
-    echo "  1. BLE Router New Device Discovery"
-    echo "  2. SeeLevel Tank Discovery"
-    echo ""
-    echo "See: https://github.com/TechBlueprints/victron-seelevel-python#switches-not-visible"
-    echo ""
-else
-    echo "✓ Both discoveries are enabled"
-    echo ""
+# Check if discoveries are enabled (skip for fresh installs as discovery is enabled by default)
+if [ "$FRESH_INSTALL" != true ]; then
+    # Wait a moment for D-Bus to be ready after restart
+    sleep 2
+    
+    BLE_DISCOVERY=$(dbus -y com.victronenergy.switch.ble.advertisements /ble_advertisements/relay_0/State GetValue 2>/dev/null || echo "")
+    SEELEVEL_DISCOVERY=$(dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_0/State GetValue 2>/dev/null || echo "")
+    
+    WARNINGS=false
+    
+    if [ "$BLE_DISCOVERY" = "0" ]; then
+        echo "⚠️  WARNING: BLE Router discovery is currently DISABLED"
+        WARNINGS=true
+    fi
+    
+    if [ "$SEELEVEL_DISCOVERY" = "0" ]; then
+        echo "⚠️  WARNING: SeeLevel Tank discovery is currently DISABLED"
+        WARNINGS=true
+    fi
+    
+    if [ "$WARNINGS" = true ]; then
+        echo ""
+        echo "For sensors to appear, BOTH discoveries must be enabled:"
+        echo "  1. BLE Router New Device Discovery"
+        echo "  2. SeeLevel Tank Discovery"
+        echo ""
+        echo "See: https://github.com/TechBlueprints/victron-seelevel-python#switches-not-visible"
+        echo ""
+    else
+        echo "✓ Both discoveries are enabled"
+        echo ""
+    fi
 fi
 
 echo "Run diagnostic to verify setup:"
