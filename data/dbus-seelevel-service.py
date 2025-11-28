@@ -103,7 +103,6 @@ class SeeLevelService:
         self.last_update: Dict[str, float] = {}  # sensor_key -> timestamp of last update sent
         self.last_value: Dict[str, int] = {}  # sensor_key -> last value seen
         self.ble_scanner = None
-        self.next_relay_id = 1  # Counter for assigning relay IDs
         
         # Initialize D-Bus for signal handling
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
@@ -125,21 +124,21 @@ class SeeLevelService:
         self.switch_service.add_path('/Connected', 1)
         self.switch_service.add_path('/State', 0x100)  # Connected state
         
-        # Add master "SeeLevel Discovery" switch (relay_0)
+        # Add master "SeeLevel Discovery" switch (relay_discovery)
         self.config_enabled = True  # Default to enabled so switches are visible
-        self.switch_service.add_path('/SwitchableOutput/relay_0/Name', '* SeeLevel Discovery')
-        self.switch_service.add_path('/SwitchableOutput/relay_0/Type', 1)  # Toggle switch
-        self.switch_service.add_path('/SwitchableOutput/relay_0/State', 1, 
+        self.switch_service.add_path('/SwitchableOutput/relay_discovery/Name', '* SeeLevel Discovery')
+        self.switch_service.add_path('/SwitchableOutput/relay_discovery/Type', 1)  # Toggle switch
+        self.switch_service.add_path('/SwitchableOutput/relay_discovery/State', 1, 
                                      writeable=True, onchangecallback=self._on_config_switch_changed)
-        self.switch_service.add_path('/SwitchableOutput/relay_0/Status', 0x00)
-        self.switch_service.add_path('/SwitchableOutput/relay_0/Current', 0)
-        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/CustomName', '', writeable=True)
-        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/Type', 1, writeable=True)
-        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/ValidTypes', 2)
-        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/Function', 2, writeable=True)
-        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/ValidFunctions', 4)
-        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/Group', '', writeable=True)
-        self.switch_service.add_path('/SwitchableOutput/relay_0/Settings/ShowUIControl', 1, writeable=True)
+        self.switch_service.add_path('/SwitchableOutput/relay_discovery/Status', 0x00)
+        self.switch_service.add_path('/SwitchableOutput/relay_discovery/Current', 0)
+        self.switch_service.add_path('/SwitchableOutput/relay_discovery/Settings/CustomName', '', writeable=True)
+        self.switch_service.add_path('/SwitchableOutput/relay_discovery/Settings/Type', 1, writeable=True)
+        self.switch_service.add_path('/SwitchableOutput/relay_discovery/Settings/ValidTypes', 2)
+        self.switch_service.add_path('/SwitchableOutput/relay_discovery/Settings/Function', 2, writeable=True)
+        self.switch_service.add_path('/SwitchableOutput/relay_discovery/Settings/ValidFunctions', 4)
+        self.switch_service.add_path('/SwitchableOutput/relay_discovery/Settings/Group', '', writeable=True)
+        self.switch_service.add_path('/SwitchableOutput/relay_discovery/Settings/ShowUIControl', 1, writeable=True)
         
         # Load persisted sensors from settings
         self._load_discovered_sensors()
@@ -177,14 +176,29 @@ class SeeLevelService:
             
             logging.info(f"Loaded {len(self.discovered_sensors)} persisted sensors from {SENSORS_FILE}")
             
+            # Migrate old numeric relay_id to new MAC-based relay_id
+            migrated = False
+            for sensor_key, sensor_info in self.discovered_sensors.items():
+                # Check if relay_id is numeric (old format)
+                old_relay_id = sensor_info.get('relay_id')
+                if isinstance(old_relay_id, int):
+                    # Migrate: use sensor_key (MAC_sensornum) as new relay_id
+                    # sensor_key format: "d8:3b:da:f8:24:06_0" becomes "d83bdaf82406_0"
+                    mac, sensor_num = sensor_key.rsplit('_', 1)
+                    new_relay_id = f"{mac.replace(':', '')}_{sensor_num}"
+                    logging.info(f"Migrating sensor {sensor_key}: relay_id {old_relay_id} → {new_relay_id}")
+                    sensor_info['relay_id'] = new_relay_id
+                    migrated = True
+            
+            # Save if we migrated any sensors
+            if migrated:
+                logging.info("Saving migrated sensor configuration")
+                self._save_discovered_sensors()
+            
             # Create switches and start processes for loaded sensors
             for sensor_key, sensor_info in self.discovered_sensors.items():
                 # Create switch for this sensor
                 self._create_switch(sensor_key, sensor_info)
-                
-                # Update next_relay_id
-                if 'relay_id' in sensor_info:
-                    self.next_relay_id = max(self.next_relay_id, sensor_info['relay_id'] + 1)
                 
                 # Start sensor process if enabled
                 if sensor_info.get('enabled', False):
@@ -233,10 +247,10 @@ class SeeLevelService:
             # Also hide/show the discovery switch itself when disabled
             if not new_enabled:
                 try:
-                    self.switch_service['/SwitchableOutput/relay_0/Settings/ShowUIControl'] = 0
-                    logging.debug("Hidden relay_0 (discovery switch)")
+                    self.switch_service['/SwitchableOutput/relay_discovery/Settings/ShowUIControl'] = 0
+                    logging.debug("Hidden relay_discovery (discovery switch)")
                 except Exception as e:
-                    logging.error(f"Failed to hide relay_0: {e}")
+                    logging.error(f"Failed to hide relay_discovery: {e}")
             
             logging.info(f"SeeLevel Discovery {'enabled' if new_enabled else 'disabled'} - sensor switches {'visible' if new_enabled else 'hidden'}")
         
@@ -244,10 +258,13 @@ class SeeLevelService:
     
     def _create_switch(self, sensor_key: str, sensor_info: dict):
         """Create a switch for a sensor on the SeeLevel Monitor device"""
-        # Assign relay_id if not already assigned
+        # Use sensor_key (MAC_sensornum) as relay_id for clarity
+        # sensor_key format: "d8:3b:da:f8:24:06_0" becomes relay_d83bdaf82406_0
+        # Remove colons from MAC, keep underscore before sensor number
         if 'relay_id' not in sensor_info:
-            sensor_info['relay_id'] = self.next_relay_id
-            self.next_relay_id += 1
+            # Split MAC and sensor_num, remove colons from MAC, rejoin with underscore
+            mac, sensor_num = sensor_key.rsplit('_', 1)
+            sensor_info['relay_id'] = f"{mac.replace(':', '')}_{sensor_num}"
         
         # Default enabled state: tanks and temperatures enabled, battery disabled
         if 'enabled' not in sensor_info:
@@ -267,7 +284,7 @@ class SeeLevelService:
         self.switch_service.add_path(f'{output_path}/Status', 0x00)  # OK
         self.switch_service.add_path(f'{output_path}/Current', 0)
         
-        # Settings - match relay_0 structure exactly
+        # Settings - match relay_discovery structure exactly
         self.switch_service.add_path(f'{output_path}/Settings/CustomName', '', writeable=True)
         self.switch_service.add_path(f'{output_path}/Settings/Type', 1, writeable=True)
         self.switch_service.add_path(f'{output_path}/Settings/ValidTypes', 2)

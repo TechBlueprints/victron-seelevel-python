@@ -85,12 +85,12 @@ else
 fi
 
 # Check SeeLevel discovery
-SEELEVEL_DISCOVERY=$(dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_0/State GetValue 2>/dev/null)
+SEELEVEL_DISCOVERY=$(dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_discovery/State GetValue 2>/dev/null)
 if [ "$SEELEVEL_DISCOVERY" = "1" ]; then
     print_pass "SeeLevel Tank discovery: ENABLED"
 elif [ "$SEELEVEL_DISCOVERY" = "0" ]; then
     print_fail "SeeLevel Tank discovery: DISABLED (must be enabled for sensors to work)"
-    echo "         Fix: dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_0/State SetValue %1"
+    echo "         Fix: dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_discovery/State SetValue %1"
 else
     print_fail "SeeLevel Tank discovery: CANNOT READ STATE"
 fi
@@ -263,7 +263,7 @@ echo "Enable BLE Router discovery:"
 echo "  dbus -y com.victronenergy.switch.ble.advertisements /SwitchableOutput/relay_1/State SetValue %1"
 echo ""
 echo "Enable SeeLevel Tank discovery:"
-echo "  dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_0/State SetValue %1"
+echo "  dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_discovery/State SetValue %1"
 echo ""
 echo "Restart services:"
 echo "  svc -t /service/dbus-ble-advertisements"
