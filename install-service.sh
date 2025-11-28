@@ -119,6 +119,15 @@ fi
 
 ln -sf "$INSTALL_DIR/service" /service/dbus-seelevel
 
+# Wait for service to start and register on D-Bus
+echo "Waiting for service to start..."
+sleep 3
+
+# Ensure both discovery switches are always visible in GUI
+echo "Ensuring discovery switches are visible..."
+dbus -y com.victronenergy.switch.ble.advertisements /SwitchableOutput/relay_1/Settings/ShowUIControl SetValue 1 2>/dev/null && echo "✓ BLE Router discovery switch is visible" || echo "Note: BLE Router switch will be visible once service fully starts"
+dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_0/Settings/ShowUIControl SetValue 1 2>/dev/null && echo "✓ SeeLevel discovery switch is visible" || echo "Note: SeeLevel switch will be visible once service fully starts"
+
 echo ""
 echo "=========================================="
 echo "Installation complete!"
