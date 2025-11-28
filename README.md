@@ -342,7 +342,31 @@ Switches may be hidden ("Show controls" disabled) or sensors haven't been discov
 
 ### Sensors Not Appearing in UI
 
-If your SeeLevel tanks are not showing up in the Venus OS UI, follow these diagnostic steps:
+If your SeeLevel tanks are not showing up in the Venus OS UI, use the diagnostic script for a complete system check:
+
+#### **Quick Diagnostic (Recommended)**
+
+```bash
+# Run the diagnostic script
+bash /data/apps/dbus-seelevel/diagnose.sh
+```
+
+This script automatically checks:
+- ✓ Both services are running
+- ✓ Both discovery switches are enabled
+- ✓ Manufacturer IDs are registered correctly
+- ✓ Sensors have been discovered
+- ✓ BLE advertisements are being received
+- ✓ D-Bus services are registered
+- ✓ Sensor processes are active
+
+The script will provide color-coded results and specific fix commands for any issues found.
+
+---
+
+#### **Manual Diagnostic Steps**
+
+If you prefer to check manually, follow these steps:
 
 #### **Step 1: Verify Both Services Are Running**
 
