@@ -104,21 +104,21 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 
 if [ -f /var/log/dbus-seelevel/current ]; then
     # Check for Cypress (305) registration
-    if tail -500 /var/log/dbus-seelevel/current | grep -q "Registered interest in manufacturer ID: 0x0131"; then
+    if tail -n 500 /var/log/dbus-seelevel/current | grep -q "Registered interest in manufacturer ID: 0x0131"; then
         print_pass "Registered for Cypress (MFG ID 305 / 0x0131) - BTP3 devices"
     else
         print_fail "NOT registered for Cypress (MFG ID 305)"
     fi
     
     # Check for SeeLevel (3264) registration
-    if tail -500 /var/log/dbus-seelevel/current | grep -q "Registered interest in manufacturer ID: 0x0CC0"; then
+    if tail -n 500 /var/log/dbus-seelevel/current | grep -q "Registered interest in manufacturer ID: 0x0CC0"; then
         print_pass "Registered for SeeLevel (MFG ID 3264 / 0x0CC0) - BTP7 devices"
     else
         print_fail "NOT registered for SeeLevel (MFG ID 3264)"
     fi
     
     # Check if scanner started
-    if tail -500 /var/log/dbus-seelevel/current | grep -q "BLE scanner started successfully"; then
+    if tail -n 500 /var/log/dbus-seelevel/current | grep -q "BLE scanner started successfully"; then
         print_pass "BLE scanner started and listening for advertisements"
     else
         print_warn "Cannot confirm BLE scanner started successfully"
@@ -154,7 +154,7 @@ fi
 # Check recent logs for advertisements
 echo ""
 if [ -f /var/log/dbus-seelevel/current ]; then
-    AD_COUNT=$(tail -500 /var/log/dbus-seelevel/current 2>/dev/null | grep -c "Advertisement received" || echo "0")
+    AD_COUNT=$(tail -n 500 /var/log/dbus-seelevel/current 2>/dev/null | grep -c "Advertisement received" || echo "0")
     AD_COUNT=$(echo "$AD_COUNT" | tr -d '\n\r ')
     if [ "$AD_COUNT" -gt 0 ] 2>/dev/null; then
         print_pass "Received $AD_COUNT BLE advertisements recently"
@@ -162,16 +162,16 @@ if [ -f /var/log/dbus-seelevel/current ]; then
         # Show recent advertisements
         echo ""
         print_info "Recent advertisements (last 5):"
-        tail -500 /var/log/dbus-seelevel/current | grep "Advertisement received" | tail -5 | sed 's/^/         /'
+        tail -n 500 /var/log/dbus-seelevel/current | grep "Advertisement received" | tail -n 5 | sed 's/^/         /'
         
         # Check for discovered sensors in logs
-        DISC_COUNT=$(tail -500 /var/log/dbus-seelevel/current 2>/dev/null | grep -c "Discovered sensor" || echo "0")
+        DISC_COUNT=$(tail -n 500 /var/log/dbus-seelevel/current 2>/dev/null | grep -c "Discovered sensor" || echo "0")
         DISC_COUNT=$(echo "$DISC_COUNT" | tr -d '\n\r ')
         if [ "$DISC_COUNT" -gt 0 ] 2>/dev/null; then
             print_pass "Successfully discovered $DISC_COUNT sensor(s)"
             echo ""
             print_info "Discovered sensors (last 5):"
-            tail -500 /var/log/dbus-seelevel/current | grep "Discovered sensor" | tail -5 | sed 's/^/         /'
+            tail -n 500 /var/log/dbus-seelevel/current | grep "Discovered sensor" | tail -n 5 | sed 's/^/         /'
         else
             print_warn "Receiving advertisements but no sensors discovered"
             echo "         This may mean discovery switch is disabled"

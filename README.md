@@ -479,7 +479,7 @@ echo -n "   SeeLevel:   "
 dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_0/State GetValue 2>/dev/null || echo "ERROR"
 echo ""
 echo "3. Recent SeeLevel logs:"
-tail -20 /var/log/dbus-seelevel/current 2>/dev/null | grep -E "(Advertisement|Discovered|ERROR)" || echo "   No relevant logs found"
+tail -n 20 /var/log/dbus-seelevel/current 2>/dev/null | grep -E "(Advertisement|Discovered|ERROR)" || echo "   No relevant logs found"
 echo ""
 echo "=== End Diagnostic ==="
 ```
