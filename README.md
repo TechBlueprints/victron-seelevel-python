@@ -49,14 +49,8 @@ victron-seelevel-python/
 
 ### Recommended: One-Line Remote Install
 
-The easiest way to install (including dependencies) is via remote installer:
-
 ```bash
-# Via curl (run directly on your Cerbo)
 ssh root@<cerbo-ip> "curl -fsSL https://raw.githubusercontent.com/TechBlueprints/victron-seelevel-python/main/install.sh | bash"
-
-# Or via wget
-ssh root@<cerbo-ip> "wget -qO- https://raw.githubusercontent.com/TechBlueprints/victron-seelevel-python/main/install.sh | bash"
 ```
 
 The installer will:
@@ -66,13 +60,9 @@ The installer will:
 - Install or restart the service
 - Check discovery status and warn if disabled
 
-### Manual Installation Steps
+### Manual Installation
 
 If you prefer manual installation:
-
-### Manual Installation Steps
-
-If you prefer to run the steps manually on your Cerbo:
 
 ```bash
 # SSH into your Cerbo
