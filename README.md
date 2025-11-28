@@ -342,12 +342,125 @@ Switches may be hidden ("Show controls" disabled) or sensors haven't been discov
 
 ### Sensors Not Appearing in UI
 
-1. Check the service is running: `svstat /service/dbus-seelevel`
-2. Check the logs: `tail -f /var/log/dbus-seelevel/current`
-3. Verify `dbus-ble-advertisements` router is running: `svstat /service/dbus-ble-advertisements`
-4. Check that the SeeLevel MAC is enabled in the router: Tap the square toggle icon (top left) and find **BLE Router** switches
-5. Enable "BLE Router New Device Discovery" temporarily to discover sensors
-6. Check Bluetooth is working: `btmon` (Ctrl+C to stop)
+If your SeeLevel tanks are not showing up in the Venus OS UI, follow these diagnostic steps:
+
+#### **Step 1: Verify Both Services Are Running**
+
+```bash
+# Check BLE Router service (should show "up"):
+svstat /service/dbus-ble-advertisements
+
+# Check SeeLevel service (should show "up"):
+svstat /service/dbus-seelevel
+```
+
+If either shows `down`, start it:
+```bash
+svc -u /service/dbus-ble-advertisements
+svc -u /service/dbus-seelevel
+```
+
+#### **Step 2: Check Discovery Switches Are Enabled**
+
+**BOTH discoveries must be enabled for sensors to appear:**
+
+```bash
+# Check BLE Router discovery (should return 1):
+dbus -y com.victronenergy.switch.ble.advertisements /ble_advertisements/relay_0/State GetValue
+
+# Check SeeLevel Tank discovery (should return 1):
+dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_0/State GetValue
+```
+
+If either returns `0`, enable them:
+```bash
+# Enable BLE Router discovery:
+dbus -y com.victronenergy.switch.ble.advertisements /ble_advertisements/relay_0/State SetValue %1
+
+# Enable SeeLevel Tank discovery:
+dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_0/State SetValue %1
+```
+
+**Via GUI:**
+1. Tap the **round toggle icon** (top left) to open device list
+2. Find and tap **"BLE Router"** → Enable **"BLE Router New Device Discovery"**
+3. Find and tap **"SeeLevel Monitor"** → Enable **"* SeeLevel Discovery"**
+
+#### **Step 3: Verify Your Device is Broadcasting**
+
+Check if btmon sees your SeeLevel device:
+```bash
+btmon | grep -i "709-BT"
+```
+
+You should see BLE advertisements within 30-60 seconds. Press Ctrl+C to stop.
+
+#### **Step 4: Check BLE Router is Receiving Advertisements**
+
+```bash
+tail -f /var/log/dbus-ble-advertisements/current
+```
+
+Look for lines mentioning your device's MAC address or manufacturer ID 305 (Cypress) or 3264 (SeeLevel).
+
+#### **Step 5: Check SeeLevel Service is Receiving Advertisements**
+
+```bash
+tail -f /var/log/dbus-seelevel/current
+```
+
+You should see:
+```
+Advertisement received: BTP3/CYPRESS from XX:XX:XX:XX:XX:XX
+Discovered sensor: Fresh Water (XX:XX:XX:XX:XX:XX)
+Created switch for sensor: Fresh Water (XX:XX:XX:XX:XX:XX)
+```
+
+If you see "Advertisement received" but no "Discovered sensor", the discovery switch might be disabled.
+
+#### **Step 6: Check Device MAC is Enabled in BLE Router**
+
+Even if discoveries are enabled, individual device toggles might be disabled:
+
+**Via GUI:**
+1. Tap **square toggle icon** (top left) to open Settings pane
+2. Find **BLE Router** switches
+3. Look for your device's MAC address toggle and enable it
+
+**Via logs:**
+```bash
+# Check discovered devices
+dbus-send --system --print-reply \
+  --dest=com.victronenergy.switch.ble.advertisements \
+  /ble_advertisements \
+  org.freedesktop.DBus.Introspectable.Introspect | grep "relay_"
+```
+
+#### **Quick Diagnostic Script**
+
+Save this as `check-seelevel.sh` and run it:
+
+```bash
+#!/bin/bash
+echo "=== SeeLevel Diagnostic Check ==="
+echo ""
+echo "1. Services:"
+svstat /service/dbus-ble-advertisements
+svstat /service/dbus-seelevel
+echo ""
+echo "2. Discovery Switches (both should be 1):"
+echo -n "   BLE Router: "
+dbus -y com.victronenergy.switch.ble.advertisements /ble_advertisements/relay_0/State GetValue 2>/dev/null || echo "ERROR"
+echo -n "   SeeLevel:   "
+dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_0/State GetValue 2>/dev/null || echo "ERROR"
+echo ""
+echo "3. Recent SeeLevel logs:"
+tail -20 /var/log/dbus-seelevel/current 2>/dev/null | grep -E "(Advertisement|Discovered|ERROR)" || echo "   No relevant logs found"
+echo ""
+echo "=== End Diagnostic ==="
+```
+
+Run with: `bash check-seelevel.sh`
 
 ### Sensors Discovered But Not Showing Data
 
