@@ -232,7 +232,7 @@ class SeeLevelService:
         if self.config_enabled != new_enabled:
             self.config_enabled = new_enabled
             
-            # Update ShowUIControl for all sensor switches (relay_1 and above)
+            # Update ShowUIControl for all sensor switches
             show_value = 1 if new_enabled else 0
             for sensor_key, sensor_info in self.discovered_sensors.items():
                 relay_id = sensor_info.get('relay_id')
@@ -244,13 +244,7 @@ class SeeLevelService:
                     except Exception as e:
                         logging.error(f"Failed to set {output_path}: {e}")
             
-            # Also hide/show the discovery switch itself when disabled
-            if not new_enabled:
-                try:
-                    self.switch_service['/SwitchableOutput/relay_discovery/Settings/ShowUIControl'] = 0
-                    logging.debug("Hidden relay_discovery (discovery switch)")
-                except Exception as e:
-                    logging.error(f"Failed to hide relay_discovery: {e}")
+            # Note: Discovery switch itself stays visible (don't hide relay_discovery)
             
             logging.info(f"SeeLevel Discovery {'enabled' if new_enabled else 'disabled'} - sensor switches {'visible' if new_enabled else 'hidden'}")
         
