@@ -52,7 +52,7 @@ victron-seelevel-python/
 3. Copy files: `scp -r data service root@<cerbo-ip>:/data/apps/dbus-seelevel/`
 4. Create symlink: `ssh root@<cerbo-ip> 'ln -sf /data/apps/dbus-seelevel/service /service/dbus-seelevel'`
 5. Verify running: `ssh root@<cerbo-ip> 'svstat /service/dbus-seelevel'`
-6. Enable sensors in Venus OS: **Settings → Switches → SeeLevel Sensor Control**
+6. Enable sensors in Venus OS: Tap the **square toggle icon** (top left) to access switches
 
 See the [Installation Guide](#installation-guide) below for detailed steps.
 
@@ -205,7 +205,18 @@ Sensors are automatically discovered from BLE advertisements and configured via 
 
 ### Enabling/Disabling Sensors
 
-Navigate to **Settings → Switches → SeeLevel Sensor Control** to manage your sensors:
+To access the sensor control switches on your Cerbo GX:
+
+1. From the main screen, tap the **square toggle icon** (top left corner)
+2. This opens the Settings pane showing all available switches
+
+> **Don't see switches?** See the [Switches Not Visible](#switches-not-visible) troubleshooting section.
+
+![Settings Pane Access](screenshots/settings-pane.png)
+
+*The square toggle icon (top left, circled in red) opens the Settings pane where you can control all switches including SeeLevel sensors.*
+
+In the Settings pane, you'll find the **SeeLevel Sensor Control** switches to manage your sensors:
 
 ![SeeLevel Switches](screenshots/seelevel-switches.png)
 
@@ -215,9 +226,11 @@ Navigate to **Settings → Switches → SeeLevel Sensor Control** to manage your
 - **Individual sensor control** - Enable/disable Fresh Water, Black Water, Gray Water, Temperature, and Battery sensors
 - **Persistent settings** - Sensor states are saved and persist across reboots
 - **MAC address identification** - Each sensor shows its source MAC address for easy identification
+- **Easy access** - Tap the square toggle icon (top left) to open the Settings pane
 
-1. Navigate to **Settings → Switches** in the Venus OS GUI
-2. Find the **SeeLevel Sensor Control** device
+**To enable/disable sensors:**
+1. Tap the **square toggle icon** in the top left corner of the main screen
+2. Scroll to find the **SeeLevel Sensor Control** switches
 3. Toggle individual sensors on/off as needed
 
 **Default States:**
@@ -229,9 +242,10 @@ Navigate to **Settings → Switches → SeeLevel Sensor Control** to manage your
 
 If a sensor toggle has been hidden from the UI, you can re-enable it:
 
-1. Navigate to **Settings → Switches → SeeLevel Sensor Control**
-2. Tap the **gear/settings icon** on the sensor you want to make visible
-3. Enable **"Show controls"**
+1. Tap the **square toggle icon** (top left) to open the Settings pane
+2. Find the **SeeLevel Sensor Control** switches
+3. Tap the **gear/settings icon** on the sensor you want to make visible
+4. Enable **"Show controls"**
 
 ![SeeLevel Show Controls Setting](screenshots/seelevel-show-controls-setting.png)
 
@@ -276,18 +290,68 @@ The service will:
 
 ## Troubleshooting
 
+### Switches Not Visible
+
+#### If the square toggle icon doesn't appear at all on the main screen:
+
+This means no switches are currently enabled on your system. **For initial setup, you need to enable BOTH BLE Router discovery AND SeeLevel Tank discovery.**
+
+**Step 1: Access the Device List**
+1. From the main screen, tap the **round toggle icon** (top left corner, next to where the square one would be)
+2. This opens the device list showing all DBus devices
+3. Scroll down to find **"BLE Router"** device
+
+**Step 2: Enable BLE Router Discovery**
+1. Tap on the **BLE Router** device
+2. Find the setting **"BLE Router New Device Discovery"**
+3. Toggle it **ON** (this enables BLE scanning)
+
+**Step 3: Enable SeeLevel Tank Discovery**
+1. In the device list, find **"SeeLevel Monitor"** device
+2. Tap on it to open settings
+3. Find **"SeeLevel Tank Discovery"** 
+4. Toggle it **ON** (this allows tank sensors to be discovered)
+
+**Step 4: Wait for Discovery**
+1. Wait 30-60 seconds for your SeeLevel device to be discovered
+2. Once discovered, sensor switches will appear in the device list
+3. The **square toggle icon** should now appear on the main screen
+
+**Step 5: Disable Discovery (Optional)**
+- After initial setup, you can disable both discovery switches to save resources
+- Discovered sensors persist across reboots
+
+> **⚠️ Important:** BOTH discoveries must be enabled for initial setup:
+> - **BLE Router New Device Discovery** - allows the router to scan for BLE devices
+> - **SeeLevel Tank Discovery** - allows the SeeLevel service to create sensors from discovered devices
+
+#### If the Settings pane opens but SeeLevel switches aren't visible:
+
+Switches may be hidden ("Show controls" disabled) or sensors haven't been discovered yet.
+
+**Option 1: Re-enable Hidden Switches**
+1. Tap the **round toggle icon** to open the device list
+2. Find **"SeeLevel Monitor"** or individual sensor devices
+3. Tap on each sensor
+4. Enable **"Show controls"** to make the toggle visible
+
+**Option 2: Enable Discovery**
+1. Check that both discoveries are enabled (see steps above)
+2. Wait for sensors to be discovered
+3. Check logs: `tail -f /var/log/dbus-seelevel/current`
+
 ### Sensors Not Appearing in UI
 
 1. Check the service is running: `svstat /service/dbus-seelevel`
 2. Check the logs: `tail -f /var/log/dbus-seelevel/current`
 3. Verify `dbus-ble-advertisements` router is running: `svstat /service/dbus-ble-advertisements`
-4. Check that the SeeLevel MAC is enabled in the router: **Settings → Switches → BLE Router**
+4. Check that the SeeLevel MAC is enabled in the router: Tap the square toggle icon (top left) and find **BLE Router** switches
 5. Enable "BLE Router New Device Discovery" temporarily to discover sensors
 6. Check Bluetooth is working: `btmon` (Ctrl+C to stop)
 
 ### Sensors Discovered But Not Showing Data
 
-1. Check that the sensor is enabled: **Settings → Switches → SeeLevel Sensor Control**
+1. Check that the sensor is enabled: Tap the square toggle icon (top left) and find **SeeLevel Sensor Control**
 2. Check the logs for errors: `tail -f /var/log/dbus-seelevel/current`
 3. Verify the sensor process is running: `ps | grep dbus-seelevel-sensor`
 
