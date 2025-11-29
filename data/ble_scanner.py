@@ -80,7 +80,7 @@ class DBusAdvertisementScanner(BLEScanner):
             names = dbus_iface.ListNames()
             logger.info(f"Checking for router service in {len(names)} D-Bus names...")
             
-            if 'com.victronenergy.ble_advertisements' not in names:
+            if 'com.victronenergy.switch.ble_advertisements' not in names:
                 logger.info("dbus-ble-advertisements service not found on D-Bus")
                 logger.info(f"Available services: {[n for n in names if 'victron' in str(n) or 'ble' in str(n)]}")
                 return False
@@ -89,7 +89,7 @@ class DBusAdvertisementScanner(BLEScanner):
             
             # Check service health by verifying the /ble_advertisements path exists
             try:
-                service = bus.get_object('com.victronenergy.ble_advertisements', '/ble_advertisements')
+                service = bus.get_object('com.victronenergy.switch.ble_advertisements', '/ble_advertisements')
                 # Just verify we can get the object - no need to call GetVersion
                 logger.info("dbus-ble-advertisements service found and healthy")
                 return True
@@ -139,7 +139,7 @@ class DBusAdvertisementScanner(BLEScanner):
                 self._dbus_advertisement_callback,
                 signal_name='Advertisement',
                 dbus_interface='com.techblueprints.ble.Advertisements',
-                bus_name='com.victronenergy.ble_advertisements'
+                bus_name='com.victronenergy.switch.ble_advertisements'
             )
             
             self.running = True

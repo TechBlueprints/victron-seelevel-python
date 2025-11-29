@@ -111,8 +111,8 @@ class SeeLevelService:
         # Migrate settings from old service name if needed
         self._migrate_settings()
         
-        # Create the SeeLevel Monitor service (not using .switch prefix - any service can have switchable outputs)
-        self.switch_service = VeDbusService('com.victronenergy.seelevel', self.bus, register=False)
+        # Create the SeeLevel Monitor service (using .switch prefix for GUI recognition)
+        self.switch_service = VeDbusService('com.victronenergy.switch.seelevel', self.bus, register=False)
         
         # Add mandatory paths
         self.switch_service.add_path('/Mgmt/ProcessName', __file__)
@@ -661,7 +661,7 @@ class SeeLevelService:
             logging.info("Creating D-Bus scanner...")
             self.ble_scanner = create_scanner(
                 advertisement_callback=self.advertisement_callback,
-                service_name="seelevel",
+                service_name="com.victronenergy.switch.seelevel",
                 manufacturer_ids=[MFG_ID_CYPRESS, MFG_ID_SEELEVEL]  # Both BTP3 and BTP7
             )
             logging.info("D-Bus scanner created")
