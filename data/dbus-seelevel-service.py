@@ -150,7 +150,7 @@ class SeeLevelService:
         from settingsdevice import SettingsDevice
         settings = {
             "ClassAndVrmInstance": [
-                "/Settings/Devices/seelevel/ClassAndVrmInstance",
+                "/Settings/Devices/switch.seelevel/ClassAndVrmInstance",
                 "switch:120",
                 0,
                 0,
@@ -168,18 +168,22 @@ class SeeLevelService:
         logging.info("registered ourselves on D-Bus as com.victronenergy.seelevel")
     
     def _migrate_settings(self):
-        """Migrate settings from old service name (com.victronenergy.switch.seelevel_monitor) to new name (com.victronenergy.seelevel)"""
-        old_path = "/Settings/Devices/seelevel_monitor/ClassAndVrmInstance"
-        new_path = "/Settings/Devices/seelevel/ClassAndVrmInstance"
+        """Migrate settings from old service name to new settings path"""
+        old_paths = [
+            "/Settings/Devices/seelevel_monitor/ClassAndVrmInstance",
+            "/Settings/Devices/seelevel/ClassAndVrmInstance",
+        ]
+        new_path = "/Settings/Devices/switch.seelevel/ClassAndVrmInstance"
         
-        try:
-            # Check if old settings exist
-            settings_obj = self.bus.get_object('com.victronenergy.settings', old_path)
-            settings_iface = dbus.Interface(settings_obj, 'com.victronenergy.BusItem')
-            old_value = settings_iface.GetValue()
-            
-            if old_value:
-                logging.info(f"Migrating settings from {old_path} to {new_path}: {old_value}")
+        for old_path in old_paths:
+            try:
+                # Check if old settings exist
+                settings_obj = self.bus.get_object('com.victronenergy.settings', old_path)
+                settings_iface = dbus.Interface(settings_obj, 'com.victronenergy.BusItem')
+                old_value = settings_iface.GetValue()
+                
+                if old_value:
+                    logging.info(f"Migrating settings from {old_path} to {new_path}: {old_value}")
                 
                 # Set the new path with the old value
                 try:
