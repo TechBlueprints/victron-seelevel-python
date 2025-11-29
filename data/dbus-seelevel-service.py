@@ -150,7 +150,7 @@ class SeeLevelService:
         from settingsdevice import SettingsDevice
         settings = {
             "ClassAndVrmInstance": [
-                "/Settings/Devices/switch.seelevel/ClassAndVrmInstance",
+                "/Settings/Devices/seelevel/ClassAndVrmInstance",
                 "switch:120",
                 0,
                 0,
@@ -169,21 +169,17 @@ class SeeLevelService:
     
     def _migrate_settings(self):
         """Migrate settings from old service name to new settings path"""
-        old_paths = [
-            "/Settings/Devices/seelevel_monitor/ClassAndVrmInstance",
-            "/Settings/Devices/seelevel/ClassAndVrmInstance",
-        ]
-        new_path = "/Settings/Devices/switch.seelevel/ClassAndVrmInstance"
+        old_path = "/Settings/Devices/seelevel_monitor/ClassAndVrmInstance"
+        new_path = "/Settings/Devices/seelevel/ClassAndVrmInstance"
         
-        for old_path in old_paths:
-            try:
-                # Check if old settings exist
-                settings_obj = self.bus.get_object('com.victronenergy.settings', old_path)
-                settings_iface = dbus.Interface(settings_obj, 'com.victronenergy.BusItem')
-                old_value = settings_iface.GetValue()
-                
-                if old_value:
-                    logging.info(f"Migrating settings from {old_path} to {new_path}: {old_value}")
+        try:
+            # Check if old settings exist
+            settings_obj = self.bus.get_object('com.victronenergy.settings', old_path)
+            settings_iface = dbus.Interface(settings_obj, 'com.victronenergy.BusItem')
+            old_value = settings_iface.GetValue()
+            
+            if old_value:
+                logging.info(f"Migrating settings from {old_path} to {new_path}: {old_value}")
                 
                 # Set the new path with the old value
                 try:
