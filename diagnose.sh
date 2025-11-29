@@ -73,13 +73,13 @@ echo "TEST 2: Discovery Switch Status"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Check BLE Router discovery
-BLE_DISCOVERY=$(dbus -y com.victronenergy.switch.ble.advertisements /SwitchableOutput/relay_1/State GetValue 2>/dev/null)
+BLE_DISCOVERY=$(dbus -y com.victronenergy.ble_advertisements /SwitchableOutput/relay_discovery/State GetValue 2>/dev/null)
 if [ "$BLE_DISCOVERY" = "1" ]; then
     print_pass "BLE Router discovery: ENABLED"
 elif [ "$BLE_DISCOVERY" = "0" ]; then
     print_warn "BLE Router discovery: DISABLED"
     echo "         Note: Discovery can be disabled after devices are found"
-    echo "         To enable: dbus -y com.victronenergy.switch.ble.advertisements /SwitchableOutput/relay_1/State SetValue %1"
+    echo "         To enable: dbus -y com.victronenergy.ble_advertisements /SwitchableOutput/relay_discovery/State SetValue %1"
 else
     print_fail "BLE Router discovery: CANNOT READ STATE"
 fi
@@ -200,7 +200,7 @@ else
 fi
 
 # Check if BLE Router is on D-Bus
-BLE_ON_DBUS=$(dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames 2>/dev/null | grep -c "com.victronenergy.switch.ble.advertisements" || echo "0")
+BLE_ON_DBUS=$(dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames 2>/dev/null | grep -c "com.victronenergy.ble_advertisements" || echo "0")
 if [ "$BLE_ON_DBUS" -gt 0 ]; then
     print_pass "BLE Router registered on D-Bus"
 else
@@ -260,7 +260,7 @@ echo "                      QUICK FIXES"
 echo "======================================================================"
 echo ""
 echo "Enable BLE Router discovery:"
-echo "  dbus -y com.victronenergy.switch.ble.advertisements /SwitchableOutput/relay_1/State SetValue %1"
+echo "  dbus -y com.victronenergy.ble_advertisements /SwitchableOutput/relay_discovery/State SetValue %1"
 echo ""
 echo "Enable SeeLevel Tank discovery:"
 echo "  dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_discovery/State SetValue %1"

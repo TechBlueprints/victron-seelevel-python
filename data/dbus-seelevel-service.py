@@ -108,14 +108,17 @@ class SeeLevelService:
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
         self.bus = dbus.SystemBus()
         
-        # Create the SeeLevel Monitor switch service (don't auto-register)
-        self.switch_service = VeDbusService('com.victronenergy.switch.seelevel_monitor', self.bus, register=False)
+        # Migrate settings from old service name if needed
+        self._migrate_settings()
+        
+        # Create the SeeLevel Monitor service (not using .switch prefix - any service can have switchable outputs)
+        self.switch_service = VeDbusService('com.victronenergy.seelevel', self.bus, register=False)
         
         # Add mandatory paths
         self.switch_service.add_path('/Mgmt/ProcessName', __file__)
         self.switch_service.add_path('/Mgmt/ProcessVersion', '1.0.1')
         self.switch_service.add_path('/Mgmt/Connection', 'SeeLevel Monitor')
-        self.switch_service.add_path('/DeviceInstance', 100)
+        self.switch_service.add_path('/DeviceInstance', 120)
         self.switch_service.add_path('/ProductId', 0xFFFF)
         self.switch_service.add_path('/ProductName', 'SeeLevel Monitor')
         self.switch_service.add_path('/CustomName', 'SeeLevel Monitor')
@@ -147,7 +150,7 @@ class SeeLevelService:
         from settingsdevice import SettingsDevice
         settings = {
             "ClassAndVrmInstance": [
-                "/Settings/Devices/seelevel_monitor/ClassAndVrmInstance",
+                "/Settings/Devices/seelevel/ClassAndVrmInstance",
                 "switch:100",
                 0,
                 0,
@@ -162,7 +165,43 @@ class SeeLevelService:
         
         # Register the service after all paths are added
         self.switch_service.register()
-        logging.info("registered ourselves on D-Bus as com.victronenergy.switch.seelevel_monitor")
+        logging.info("registered ourselves on D-Bus as com.victronenergy.seelevel")
+    
+    def _migrate_settings(self):
+        """Migrate settings from old service name (com.victronenergy.switch.seelevel_monitor) to new name (com.victronenergy.seelevel)"""
+        old_path = "/Settings/Devices/seelevel_monitor/ClassAndVrmInstance"
+        new_path = "/Settings/Devices/seelevel/ClassAndVrmInstance"
+        
+        try:
+            # Check if old settings exist
+            settings_obj = self.bus.get_object('com.victronenergy.settings', old_path)
+            settings_iface = dbus.Interface(settings_obj, 'com.victronenergy.BusItem')
+            old_value = settings_iface.GetValue()
+            
+            if old_value:
+                logging.info(f"Migrating settings from {old_path} to {new_path}: {old_value}")
+                
+                # Set the new path with the old value
+                try:
+                    new_obj = self.bus.get_object('com.victronenergy.settings', new_path)
+                    new_iface = dbus.Interface(new_obj, 'com.victronenergy.BusItem')
+                    new_iface.SetValue(old_value)
+                    logging.info(f"Successfully migrated settings to {new_path}")
+                except Exception as e:
+                    logging.info(f"New settings path doesn't exist yet (will be created): {e}")
+                
+                # Delete the old path
+                try:
+                    settings_obj.Delete()
+                    logging.info(f"Deleted old settings path: {old_path}")
+                except Exception as e:
+                    logging.warning(f"Could not delete old settings path {old_path}: {e}")
+                    
+        except dbus.exceptions.DBusException as e:
+            # Old settings don't exist - this is fine (fresh install or already migrated)
+            logging.debug(f"No old settings to migrate from {old_path}: {e}")
+        except Exception as e:
+            logging.warning(f"Error during settings migration: {e}")
         
     def _load_discovered_sensors(self):
         """Load persisted sensor information from JSON file"""

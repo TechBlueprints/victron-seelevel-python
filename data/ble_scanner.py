@@ -54,7 +54,10 @@ class DBusAdvertisementScanner(BLEScanner):
                  manufacturer_ids: list[int] = None,
                  mac_addresses: list[str] = None):
         super().__init__(advertisement_callback)
-        self.service_name = service_name.replace('-', '_')  # Sanitize for D-Bus paths
+        # service_name should be just the short name (e.g., "seelevel")
+        # We'll construct the full D-Bus service name and sanitize for paths
+        self.service_name_short = service_name.replace('-', '_').replace('.', '_')  # Sanitize for D-Bus paths
+        self.service_name_full = f'com.victronenergy.{self.service_name_short}'  # Full D-Bus service name
         self.manufacturer_ids = manufacturer_ids or []
         # MAC addresses are no longer used - router handles device filtering via UI toggles
         self.bus = None
@@ -77,7 +80,7 @@ class DBusAdvertisementScanner(BLEScanner):
             names = dbus_iface.ListNames()
             logger.info(f"Checking for router service in {len(names)} D-Bus names...")
             
-            if 'com.victronenergy.switch.ble.advertisements' not in names:
+            if 'com.victronenergy.ble_advertisements' not in names:
                 logger.info("dbus-ble-advertisements service not found on D-Bus")
                 logger.info(f"Available services: {[n for n in names if 'victron' in str(n) or 'ble' in str(n)]}")
                 return False
@@ -86,7 +89,7 @@ class DBusAdvertisementScanner(BLEScanner):
             
             # Check service health by verifying the /ble_advertisements path exists
             try:
-                service = bus.get_object('com.victronenergy.switch.ble.advertisements', '/ble_advertisements')
+                service = bus.get_object('com.victronenergy.ble_advertisements', '/ble_advertisements')
                 # Just verify we can get the object - no need to call GetVersion
                 logger.info("dbus-ble-advertisements service found and healthy")
                 return True
@@ -102,7 +105,7 @@ class DBusAdvertisementScanner(BLEScanner):
     
     async def start(self):
         """Start D-Bus advertisement scanner by registering interests"""
-        logger.info(f"Attempting to register with dbus-ble-advertisements as '{self.service_name}'...")
+        logger.info(f"Attempting to register with dbus-ble-advertisements as '{self.service_name_full}'...")
         
         # Import GLib D-Bus mainloop integration
         from dbus.mainloop.glib import DBusGMainLoop
@@ -116,14 +119,15 @@ class DBusAdvertisementScanner(BLEScanner):
         # Create registration objects optimistically
         # Even if router isn't running, these paths will exist for when it does start
         try:
-            # Use the router's bus name for registration objects
-            router_bus_name = dbus.service.BusName('com.victronenergy.switch.ble.advertisements', self.bus)
+            # Use the full service name for the bus name (e.g., com.victronenergy.seelevel)
+            bus_name = dbus.service.BusName(self.service_name_full, self.bus)
             
             # Register for manufacturer IDs only
             # The router will filter by enabled/disabled device toggles in the UI
             for mfg_id in self.manufacturer_ids:
-                path = f'/ble_advertisements/{self.service_name}/mfgr/{mfg_id}'
-                obj = dbus.service.Object(router_bus_name, path)
+                # Use short name for paths (e.g., /ble_advertisements/seelevel/mfgr/305)
+                path = f'/ble_advertisements/{self.service_name_short}/mfgr/{mfg_id}'
+                obj = dbus.service.Object(bus_name, path)
                 self.registration_objects.append(obj)
                 logger.info(f"  Registered interest in manufacturer ID: 0x{mfg_id:04X} at {path}")
             
@@ -135,7 +139,7 @@ class DBusAdvertisementScanner(BLEScanner):
                 self._dbus_advertisement_callback,
                 signal_name='Advertisement',
                 dbus_interface='com.techblueprints.ble.Advertisements',
-                bus_name='com.victronenergy.switch.ble.advertisements'
+                bus_name='com.victronenergy.ble_advertisements'
             )
             
             self.running = True
