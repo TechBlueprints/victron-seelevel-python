@@ -291,7 +291,10 @@ class SeeLevelService:
         return True
     
     def _create_switch(self, sensor_key: str, sensor_info: dict):
-        """Create a switch for a sensor on the SeeLevel Monitor device"""
+        """Create a switch for a sensor on the SeeLevel Monitor device
+        
+        Uses context manager to emit ItemsChanged signal so GUI picks up new switches.
+        """
         # Use sensor_key (MAC_sensornum) as relay_id for clarity
         # sensor_key format: "d8:3b:da:f8:24:06_0" becomes relay_d83bdaf82406_0
         # Remove colons from MAC, keep underscore before sensor number
@@ -310,23 +313,24 @@ class SeeLevelService:
         # Show sensor switches based on config_enabled state
         show_ui = 1 if self.config_enabled else 0
         
-        # Create switch paths
-        self.switch_service.add_path(f'{output_path}/Name', sensor_info['name'])
-        self.switch_service.add_path(f'{output_path}/Type', 1)  # Toggle switch
-        self.switch_service.add_path(f'{output_path}/State', 1 if sensor_info['enabled'] else 0, 
-                                     writeable=True, onchangecallback=lambda p, v: self._on_switch_changed(sensor_key, p, v))
-        self.switch_service.add_path(f'{output_path}/Status', 0x00)  # OK
-        self.switch_service.add_path(f'{output_path}/Current', 0)
-        
-        # Settings - match relay_discovery structure exactly
-        self.switch_service.add_path(f'{output_path}/Settings/CustomName', '', writeable=True)
-        self.switch_service.add_path(f'{output_path}/Settings/Type', 1, writeable=True)
-        self.switch_service.add_path(f'{output_path}/Settings/ValidTypes', 2)
-        self.switch_service.add_path(f'{output_path}/Settings/Function', 2, writeable=True)
-        self.switch_service.add_path(f'{output_path}/Settings/ValidFunctions', 4)
-        self.switch_service.add_path(f'{output_path}/Settings/Group', '', writeable=True)
-        self.switch_service.add_path(f'{output_path}/Settings/ShowUIControl', show_ui, writeable=True)
-        self.switch_service.add_path(f'{output_path}/Settings/PowerOnState', 1 if sensor_info['enabled'] else 0)
+        # Create switch paths using context manager to emit ItemsChanged signal
+        with self.switch_service as ctx:
+            ctx.add_path(f'{output_path}/Name', sensor_info['name'])
+            ctx.add_path(f'{output_path}/Type', 1)  # Toggle switch
+            ctx.add_path(f'{output_path}/State', 1 if sensor_info['enabled'] else 0, 
+                         writeable=True, onchangecallback=lambda p, v: self._on_switch_changed(sensor_key, p, v))
+            ctx.add_path(f'{output_path}/Status', 0x00)  # OK
+            ctx.add_path(f'{output_path}/Current', 0)
+            
+            # Settings - match relay_discovery structure exactly
+            ctx.add_path(f'{output_path}/Settings/CustomName', '', writeable=True)
+            ctx.add_path(f'{output_path}/Settings/Type', 1, writeable=True)
+            ctx.add_path(f'{output_path}/Settings/ValidTypes', 2)
+            ctx.add_path(f'{output_path}/Settings/Function', 2, writeable=True)
+            ctx.add_path(f'{output_path}/Settings/ValidFunctions', 4)
+            ctx.add_path(f'{output_path}/Settings/Group', '', writeable=True)
+            ctx.add_path(f'{output_path}/Settings/ShowUIControl', show_ui, writeable=True)
+            ctx.add_path(f'{output_path}/Settings/PowerOnState', 1 if sensor_info['enabled'] else 0)
         
         logging.info(f"Created switch for {sensor_info['name']} at {output_path}, enabled={sensor_info['enabled']}")
     
