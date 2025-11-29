@@ -151,7 +151,7 @@ class SeeLevelService:
         settings = {
             "ClassAndVrmInstance": [
                 "/Settings/Devices/seelevel/ClassAndVrmInstance",
-                "switch:100",
+                "switch:120",
                 0,
                 0,
             ],
