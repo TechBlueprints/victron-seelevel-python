@@ -119,15 +119,13 @@ class DBusAdvertisementScanner(BLEScanner):
         # Create registration objects optimistically
         # Even if router isn't running, these paths will exist for when it does start
         try:
-            # Use the full service name for the bus name (e.g., com.victronenergy.seelevel)
-            bus_name = dbus.service.BusName(self.service_name_full, self.bus)
-            
             # Register for manufacturer IDs only
             # The router will filter by enabled/disabled device toggles in the UI
             for mfg_id in self.manufacturer_ids:
                 # Use short name for paths (e.g., /ble_advertisements/seelevel/mfgr/305)
                 path = f'/ble_advertisements/{self.service_name_short}/mfgr/{mfg_id}'
-                obj = dbus.service.Object(bus_name, path)
+                # Create object on the bus connection (not claiming a new service name)
+                obj = dbus.service.Object(self.bus, path)
                 self.registration_objects.append(obj)
                 logger.info(f"  Registered interest in manufacturer ID: 0x{mfg_id:04X} at {path}")
             
