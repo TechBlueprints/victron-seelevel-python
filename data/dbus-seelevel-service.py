@@ -26,7 +26,6 @@ import sys
 import time
 import logging
 import signal
-import json
 import os
 import glob
 import asyncio
@@ -91,7 +90,6 @@ SENSOR_TYPES = [
 ]
 
 HEARTBEAT_INTERVAL = 300  # 5 minutes
-SENSORS_FILE = "/data/apps/dbus-seelevel/sensors.json"
 
 
 class SeeLevelService:
@@ -220,58 +218,54 @@ class SeeLevelService:
             logging.warning(f"Error during settings migration: {e}")
         
     def _load_discovered_sensors(self):
-        """Load persisted sensor information from JSON file"""
-        if not os.path.exists(SENSORS_FILE):
-            logging.info("No persisted sensors found (first run)")
-            return
+        """Load persisted sensor enabled states from settings.
         
-        try:
-            with open(SENSORS_FILE, 'r') as f:
-                self.discovered_sensors = json.load(f)
-            
-            logging.info(f"Loaded {len(self.discovered_sensors)} persisted sensors from {SENSORS_FILE}")
-            
-            # Migrate old numeric relay_id to new MAC-based relay_id
-            migrated = False
-            for sensor_key, sensor_info in self.discovered_sensors.items():
-                # Check if relay_id is numeric (old format)
-                old_relay_id = sensor_info.get('relay_id')
-                if isinstance(old_relay_id, int):
-                    # Migrate: use sensor_key (MAC_sensornum) as new relay_id
-                    # sensor_key format: "d8:3b:da:f8:24:06_0" becomes "d83bdaf82406_0"
-                    mac, sensor_num = sensor_key.rsplit('_', 1)
-                    new_relay_id = f"{mac.replace(':', '')}_{sensor_num}"
-                    logging.info(f"Migrating sensor {sensor_key}: relay_id {old_relay_id} → {new_relay_id}")
-                    sensor_info['relay_id'] = new_relay_id
-                    migrated = True
-            
-            # Save if we migrated any sensors
-            if migrated:
-                logging.info("Saving migrated sensor configuration")
-                self._save_discovered_sensors()
-            
-            # Create switches and start processes for loaded sensors
-            for sensor_key, sensor_info in self.discovered_sensors.items():
-                # Create switch for this sensor
-                self._create_switch(sensor_key, sensor_info)
-                
-                # Start sensor process if enabled
-                if sensor_info.get('enabled', False):
-                    self._start_sensor_process(sensor_key, sensor_info)
-                
-        except Exception as e:
-            logging.error(f"Failed to load sensors from {SENSORS_FILE}: {e}")
-            self.discovered_sensors = {}
+        Sensor info (mac, type, name) is rediscovered via BLE.
+        Only the enabled/disabled state is persisted in settings.
+        """
+        # Nothing to load on startup - sensors will be rediscovered via BLE
+        # Their enabled state will be loaded from settings when they're discovered
+        logging.info("Sensors will be discovered via BLE advertisements")
     
-    def _save_discovered_sensors(self):
-        """Save discovered sensors to JSON file"""
+    def _get_sensor_enabled_setting(self, relay_id: str) -> bool:
+        """Get sensor enabled state from settings, defaulting based on sensor type"""
         try:
-            os.makedirs(os.path.dirname(SENSORS_FILE), exist_ok=True)
-            with open(SENSORS_FILE, 'w') as f:
-                json.dump(self.discovered_sensors, f, indent=2)
-            logging.debug(f"Saved {len(self.discovered_sensors)} sensors to {SENSORS_FILE}")
+            settings_path = f"/Settings/Devices/seelevel/Sensor_{relay_id}"
+            settings_obj = self.bus.get_object('com.victronenergy.settings', settings_path)
+            settings_iface = dbus.Interface(settings_obj, 'com.victronenergy.BusItem')
+            value = settings_iface.GetValue()
+            return bool(value)
+        except:
+            # Setting doesn't exist yet - will be created when sensor is discovered
+            return None
+    
+    def _set_sensor_enabled_setting(self, relay_id: str, enabled: bool, sensor_type: str = 'tank'):
+        """Save sensor enabled state to settings"""
+        try:
+            settings_path = f"/Settings/Devices/seelevel/Sensor_{relay_id}"
+            # Default: tanks and temperatures enabled, battery disabled
+            default_enabled = 1 if sensor_type in ['tank', 'temperature'] else 0
+            
+            settings_obj = self.bus.get_object('com.victronenergy.settings', '/Settings')
+            settings_iface = dbus.Interface(settings_obj, 'com.victronenergy.Settings')
+            # AddSetting(group, name, default, type, min, max)
+            settings_iface.AddSetting(
+                'Devices/seelevel',
+                f'Sensor_{relay_id}',
+                default_enabled,
+                'i',  # integer
+                0,
+                1
+            )
+            
+            # Now set the actual value
+            sensor_obj = self.bus.get_object('com.victronenergy.settings', settings_path)
+            sensor_iface = dbus.Interface(sensor_obj, 'com.victronenergy.BusItem')
+            sensor_iface.SetValue(1 if enabled else 0)
+            
+            logging.debug(f"Saved sensor {relay_id} enabled={enabled} to settings")
         except Exception as e:
-            logging.error(f"Failed to save sensors to {SENSORS_FILE}: {e}")
+            logging.error(f"Failed to save sensor setting: {e}")
     
     def _on_settings_changed(self, setting, old_value, new_value):
         """Callback when a setting changes in com.victronenergy.settings"""
@@ -364,7 +358,10 @@ class SeeLevelService:
         
         if old_enabled != new_enabled:
             sensor_info['enabled'] = new_enabled
-            self._save_discovered_sensors()
+            # Save to settings
+            relay_id = sensor_info.get('relay_id')
+            if relay_id:
+                self._set_sensor_enabled_setting(relay_id, new_enabled, sensor_info.get('type', 'tank'))
             
             if new_enabled:
                 # Start the sensor process
@@ -446,12 +443,26 @@ class SeeLevelService:
         
         name, sensor_class = SENSOR_TYPES[sensor_type_id][sensor_num]
         
+        # Generate relay_id for this sensor
+        relay_id = f"{mac.replace(':', '')}_{sensor_num}"
+        
+        # Check settings for persisted enabled state
+        persisted_enabled = self._get_sensor_enabled_setting(relay_id)
+        if persisted_enabled is not None:
+            # Use persisted state
+            enabled = persisted_enabled
+        else:
+            # Default: tanks and temperatures enabled, battery disabled
+            enabled = (sensor_class in ['tank', 'temperature'])
+        
         sensor_info = {
             'mac': mac,
             'sensor_type_id': sensor_type_id,
             'sensor_num': sensor_num,
             'name': name,  # e.g., "Fresh Water"
-            'type': sensor_class
+            'type': sensor_class,
+            'enabled': enabled,
+            'relay_id': relay_id
         }
         
         self.discovered_sensors[sensor_key] = sensor_info
@@ -459,13 +470,13 @@ class SeeLevelService:
         # Create switch for this sensor
         self._create_switch(sensor_key, sensor_info)
         
-        # Save to settings
-        self._save_discovered_sensors()
+        # Save enabled state to settings (creates setting if needed)
+        self._set_sensor_enabled_setting(relay_id, enabled, sensor_class)
         
-        logging.info(f"Discovered sensor: {sensor_info['name']}")
+        logging.info(f"Discovered sensor: {sensor_info['name']} (enabled={enabled})")
         
         # Start the sensor process if enabled
-        if sensor_info.get('enabled', False):
+        if enabled:
             self._start_sensor_process(sensor_key, sensor_info)
 
     def send_update(self, sensor_key: str, sensor_value: int, alarm_state: int = None):
