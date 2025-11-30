@@ -62,7 +62,7 @@ if ! dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedeskt
         fi
     else
         echo "Manual installation required:"
-        echo "  wget -qO- https://raw.githubusercontent.com/TechBlueprints/dbus-ble-advertisements/main/install.sh | bash"
+        echo "  curl -fsSL https://raw.githubusercontent.com/TechBlueprints/dbus-ble-advertisements/main/install.sh | bash"
         echo ""
         echo "Or use the legacy-standalone-btmon branch:"
         echo "  https://github.com/TechBlueprints/victron-seelevel-python/tree/legacy-standalone-btmon"

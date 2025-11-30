@@ -4,7 +4,6 @@
 # 
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/TechBlueprints/victron-seelevel-python/main/install.sh | bash
-#   wget -qO- https://raw.githubusercontent.com/TechBlueprints/victron-seelevel-python/main/install.sh | bash
 #
 
 set -e
