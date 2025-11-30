@@ -24,7 +24,7 @@ fi
 
 # Check if dbus-ble-advertisements is installed
 echo "Checking for dbus-ble-advertisements service..."
-if ! dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames 2>/dev/null | grep -q "com.victronenergy.ble_advertisements"; then
+if ! dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames 2>/dev/null | grep -q "com.victronenergy.switch.ble_advertisements"; then
     echo ""
     echo "=========================================="
     echo "dbus-ble-advertisements NOT FOUND"
@@ -125,8 +125,8 @@ sleep 3
 
 # Ensure both discovery switches are always visible in GUI
 echo "Ensuring discovery switches are visible..."
-dbus -y com.victronenergy.ble_advertisements /SwitchableOutput/relay_discovery/Settings/ShowUIControl SetValue 1 2>/dev/null && echo "✓ BLE Router discovery switch is visible" || echo "Note: BLE Router switch will be visible once service fully starts"
-dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_discovery/Settings/ShowUIControl SetValue 1 2>/dev/null && echo "✓ SeeLevel discovery switch is visible" || echo "Note: SeeLevel switch will be visible once service fully starts"
+dbus -y com.victronenergy.switch.ble_advertisements /SwitchableOutput/relay_discovery/Settings/ShowUIControl SetValue 1 2>/dev/null && echo "✓ BLE Router discovery switch is visible" || echo "Note: BLE Router switch will be visible once service fully starts"
+dbus -y com.victronenergy.switch.seelevel /SwitchableOutput/relay_discovery/Settings/ShowUIControl SetValue 1 2>/dev/null && echo "✓ SeeLevel discovery switch is visible" || echo "Note: SeeLevel switch will be visible once service fully starts"
 
 echo ""
 echo "=========================================="

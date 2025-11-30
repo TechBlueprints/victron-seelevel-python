@@ -155,8 +155,8 @@ if [ "$FRESH_INSTALL" != true ]; then
     # Wait a moment for D-Bus to be ready after restart
     sleep 2
     
-    BLE_DISCOVERY=$(dbus -y com.victronenergy.ble_advertisements /SwitchableOutput/relay_discovery/State GetValue 2>/dev/null || echo "")
-    SEELEVEL_DISCOVERY=$(dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_discovery/State GetValue 2>/dev/null || echo "")
+    BLE_DISCOVERY=$(dbus -y com.victronenergy.switch.ble_advertisements /SwitchableOutput/relay_discovery/State GetValue 2>/dev/null || echo "")
+    SEELEVEL_DISCOVERY=$(dbus -y com.victronenergy.switch.seelevel /SwitchableOutput/relay_discovery/State GetValue 2>/dev/null || echo "")
     
     WARNINGS=false
     
