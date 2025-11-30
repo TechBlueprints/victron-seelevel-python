@@ -190,7 +190,7 @@ class SeeLevelService:
         
         try:
             # Check if old settings exist
-            settings_obj = self.bus.get_object('com.victronenergy.settings', old_path)
+            settings_obj = self.bus.get_object('com.victronenergy.settings', old_path, introspect=False)
             settings_iface = dbus.Interface(settings_obj, 'com.victronenergy.BusItem')
             old_value = settings_iface.GetValue()
             
@@ -199,7 +199,7 @@ class SeeLevelService:
                 
                 # Set the new path with the old value
                 try:
-                    new_obj = self.bus.get_object('com.victronenergy.settings', new_path)
+                    new_obj = self.bus.get_object('com.victronenergy.settings', new_path, introspect=False)
                     new_iface = dbus.Interface(new_obj, 'com.victronenergy.BusItem')
                     new_iface.SetValue(old_value)
                     logging.info(f"Successfully migrated settings to {new_path}")
@@ -233,7 +233,7 @@ class SeeLevelService:
         """Get sensor enabled state from settings, defaulting based on sensor type"""
         try:
             settings_path = f"/Settings/Devices/seelevel/Sensor_{relay_id}"
-            settings_obj = self.bus.get_object('com.victronenergy.settings', settings_path)
+            settings_obj = self.bus.get_object('com.victronenergy.settings', settings_path, introspect=False)
             settings_iface = dbus.Interface(settings_obj, 'com.victronenergy.BusItem')
             value = settings_iface.GetValue()
             return bool(value)
@@ -248,7 +248,7 @@ class SeeLevelService:
             # Default: tanks and temperatures enabled, battery disabled
             default_enabled = 1 if sensor_type in ['tank', 'temperature'] else 0
             
-            settings_obj = self.bus.get_object('com.victronenergy.settings', '/Settings')
+            settings_obj = self.bus.get_object('com.victronenergy.settings', '/Settings', introspect=False)
             settings_iface = dbus.Interface(settings_obj, 'com.victronenergy.Settings')
             # AddSetting(group, name, default, type, min, max)
             settings_iface.AddSetting(
@@ -261,7 +261,7 @@ class SeeLevelService:
             )
             
             # Now set the actual value
-            sensor_obj = self.bus.get_object('com.victronenergy.settings', settings_path)
+            sensor_obj = self.bus.get_object('com.victronenergy.settings', settings_path, introspect=False)
             sensor_iface = dbus.Interface(sensor_obj, 'com.victronenergy.BusItem')
             sensor_iface.SetValue(1 if enabled else 0)
             
