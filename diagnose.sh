@@ -73,24 +73,24 @@ echo "TEST 2: Discovery Switch Status"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Check BLE Router discovery
-BLE_DISCOVERY=$(dbus -y com.victronenergy.ble_advertisements /SwitchableOutput/relay_discovery/State GetValue 2>/dev/null)
+BLE_DISCOVERY=$(dbus -y com.victronenergy.switch.ble_advertisements /SwitchableOutput/relay_discovery/State GetValue 2>/dev/null)
 if [ "$BLE_DISCOVERY" = "1" ]; then
     print_pass "BLE Router discovery: ENABLED"
 elif [ "$BLE_DISCOVERY" = "0" ]; then
     print_warn "BLE Router discovery: DISABLED"
     echo "         Note: Discovery can be disabled after devices are found"
-    echo "         To enable: dbus -y com.victronenergy.ble_advertisements /SwitchableOutput/relay_discovery/State SetValue %1"
+    echo "         To enable: dbus -y com.victronenergy.switch.ble_advertisements /SwitchableOutput/relay_discovery/State SetValue %1"
 else
     print_fail "BLE Router discovery: CANNOT READ STATE"
 fi
 
 # Check SeeLevel discovery
-SEELEVEL_DISCOVERY=$(dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_discovery/State GetValue 2>/dev/null)
+SEELEVEL_DISCOVERY=$(dbus -y com.victronenergy.switch.seelevel /SwitchableOutput/relay_discovery/State GetValue 2>/dev/null)
 if [ "$SEELEVEL_DISCOVERY" = "1" ]; then
     print_pass "SeeLevel Tank discovery: ENABLED"
 elif [ "$SEELEVEL_DISCOVERY" = "0" ]; then
     print_fail "SeeLevel Tank discovery: DISABLED (must be enabled for sensors to work)"
-    echo "         Fix: dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_discovery/State SetValue %1"
+    echo "         Fix: dbus -y com.victronenergy.switch.seelevel /SwitchableOutput/relay_discovery/State SetValue %1"
 else
     print_fail "SeeLevel Tank discovery: CANNOT READ STATE"
 fi
@@ -134,21 +134,16 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "TEST 4: Sensor Discovery Status"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# Check if sensors.json exists
-if [ -f /data/apps/dbus-seelevel/sensors.json ]; then
-    SENSOR_COUNT=$(cat /data/apps/dbus-seelevel/sensors.json | grep -o '"mac"' | wc -l)
-    if [ "$SENSOR_COUNT" -gt 0 ]; then
-        print_pass "Found $SENSOR_COUNT previously discovered sensor(s) in sensors.json"
-        
-        # Show discovered sensors
-        echo ""
-        print_info "Discovered sensors:"
-        cat /data/apps/dbus-seelevel/sensors.json | grep -E '"name"|"mac"|"enabled"' | head -n 30
-    else
-        print_warn "sensors.json exists but no sensors discovered yet"
-    fi
+# Check for discovered sensors via settings service
+SENSOR_SETTINGS=$(dbus -y com.victronenergy.settings /Settings/Devices GetValue 2>/dev/null | grep -E "seelevel.*Sensor_" | head -n 20)
+if [ -n "$SENSOR_SETTINGS" ]; then
+    SENSOR_COUNT=$(echo "$SENSOR_SETTINGS" | wc -l)
+    print_pass "Found $SENSOR_COUNT sensor setting(s) in Venus OS settings"
+    echo ""
+    print_info "Sensor settings:"
+    echo "$SENSOR_SETTINGS" | sed 's/^/         /'
 else
-    print_warn "No sensors.json file (first run or no sensors discovered yet)"
+    print_warn "No sensor settings found (first run or no sensors discovered yet)"
 fi
 
 # Check recent logs for advertisements
@@ -193,14 +188,14 @@ echo "TEST 5: D-Bus Service Registration"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Check if SeeLevel is on D-Bus
-if dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames 2>/dev/null | grep -q "com.victronenergy.switch.seelevel_monitor"; then
+if dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames 2>/dev/null | grep -q "com.victronenergy.switch.seelevel"; then
     print_pass "SeeLevel service registered on D-Bus"
 else
     print_fail "SeeLevel service NOT found on D-Bus"
 fi
 
 # Check if BLE Router is on D-Bus
-BLE_ON_DBUS=$(dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames 2>/dev/null | grep -c "com.victronenergy.ble_advertisements" || echo "0")
+BLE_ON_DBUS=$(dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames 2>/dev/null | grep -c "com.victronenergy.switch.ble_advertisements" || echo "0")
 if [ "$BLE_ON_DBUS" -gt 0 ]; then
     print_pass "BLE Router registered on D-Bus"
 else
@@ -260,10 +255,10 @@ echo "                      QUICK FIXES"
 echo "======================================================================"
 echo ""
 echo "Enable BLE Router discovery:"
-echo "  dbus -y com.victronenergy.ble_advertisements /SwitchableOutput/relay_discovery/State SetValue %1"
+echo "  dbus -y com.victronenergy.switch.ble_advertisements /SwitchableOutput/relay_discovery/State SetValue %1"
 echo ""
 echo "Enable SeeLevel Tank discovery:"
-echo "  dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_discovery/State SetValue %1"
+echo "  dbus -y com.victronenergy.switch.seelevel /SwitchableOutput/relay_discovery/State SetValue %1"
 echo ""
 echo "Restart services:"
 echo "  svc -t /service/dbus-ble-advertisements"
