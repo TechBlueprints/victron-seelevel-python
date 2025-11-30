@@ -156,6 +156,12 @@ class SeeLevelService:
                 0,
                 0,
             ],
+            "DiscoveryEnabled": [
+                "/Settings/Devices/seelevel/DiscoveryEnabled",
+                1,  # Default: ON
+                0,
+                1,
+            ],
         }
         self._settings = SettingsDevice(
             self.bus,
@@ -163,6 +169,15 @@ class SeeLevelService:
             eventCallback=self._on_settings_changed,
             timeout=10
         )
+        
+        # Restore discovery state from saved settings
+        discovery_state = self._settings['DiscoveryEnabled']
+        self.switch_service['/SwitchableOutput/relay_discovery/State'] = discovery_state
+        self.config_enabled = bool(discovery_state)
+        if discovery_state:
+            logging.info("Discovery enabled from saved settings")
+        else:
+            logging.info("Discovery disabled from saved settings")
         
         # Register the service after all paths are added
         self.switch_service.register()
@@ -268,6 +283,9 @@ class SeeLevelService:
         new_enabled = bool(int(value) if isinstance(value, str) else value)
         
         logging.info(f"Config switch changed: new_enabled={new_enabled}, old={self.config_enabled}")
+        
+        # Save to persistent settings
+        self._settings['DiscoveryEnabled'] = 1 if new_enabled else 0
         
         if self.config_enabled != new_enabled:
             self.config_enabled = new_enabled
