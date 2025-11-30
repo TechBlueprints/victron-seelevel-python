@@ -90,6 +90,7 @@ SENSOR_TYPES = [
 ]
 
 HEARTBEAT_INTERVAL = 300  # 5 minutes
+LOG_INTERVAL = 3600  # 1 hour - only log unchanged values this often
 
 
 class SeeLevelService:
@@ -100,6 +101,7 @@ class SeeLevelService:
         self.discovered_sensors: Dict[str, dict] = {}  # sensor_key -> {mac, sensor_type_id, sensor_num, name, type, enabled, relay_id}
         self.last_update: Dict[str, float] = {}  # sensor_key -> timestamp of last update sent
         self.last_value: Dict[str, int] = {}  # sensor_key -> last value seen
+        self.last_log_time: Dict[str, float] = {}  # sensor_key -> timestamp of last log
         self.ble_scanner = None
         
         # Initialize D-Bus for signal handling
@@ -620,26 +622,31 @@ class SeeLevelService:
                 if sensor_key in self.sensor_processes:
                     self.send_update(sensor_key, sensor_value, alarm_state)
                 
-                # Log only on value changes
-                if value_changed:
+                # Throttled logging - only log on value changes or hourly
+                time_for_log = (sensor_key not in self.last_log_time) or (now - self.last_log_time[sensor_key] >= LOG_INTERVAL)
+                should_log = value_changed or time_for_log
+                
+                if should_log:
+                    self.last_log_time[sensor_key] = now
                     # Add alarm indicator for BTP3
                     alarm_suffix = f" [ALARM {alarm_state}]" if alarm_state and alarm_state > 0 else ""
+                    change_indicator = " (changed)" if value_changed else ""
                     
                     if (sensor_type_id == 0 and sensor_num == 13) or (sensor_type_id == 1 and sensor_num == 8):  # Battery
                         # Both BTP3 and BTP7: voltage × 10
                         voltage = sensor_value / 10.0
-                        logging.info(f"{sensor_info['name']}: {voltage}V (changed){alarm_suffix}")
+                        logging.info(f"{sensor_info['name']}: {voltage}V{change_indicator}{alarm_suffix}")
                     elif sensor_type_id == 0 and sensor_num in [7, 8, 9, 10]:  # Temperature
                         temp_c = (sensor_value - 32.0) * 5.0 / 9.0
-                        logging.info(f"{sensor_info['name']}: {temp_c:.1f}°C (changed){alarm_suffix}")
+                        logging.info(f"{sensor_info['name']}: {temp_c:.1f}°C{change_indicator}{alarm_suffix}")
                     else:  # Tank
                         tank_capacity_gallons = sensor_info.get('tank_capacity_gallons', 0)
                         if tank_capacity_gallons > 0:
                             capacity_m3 = round(tank_capacity_gallons * 0.00378541, 3)
                             remaining_m3 = round(capacity_m3 * sensor_value / 100.0, 3)
-                            logging.info(f"{sensor_info['name']}: {sensor_value}% ({remaining_m3}/{capacity_m3} m³) (changed){alarm_suffix}")
+                            logging.info(f"{sensor_info['name']}: {sensor_value}% ({remaining_m3}/{capacity_m3} m³){change_indicator}{alarm_suffix}")
                         else:
-                            logging.info(f"{sensor_info['name']}: {sensor_value}% (changed){alarm_suffix}")
+                            logging.info(f"{sensor_info['name']}: {sensor_value}%{change_indicator}{alarm_suffix}")
                 
                 # Track last update time and value
                 self.last_update[sensor_key] = now
@@ -769,7 +776,7 @@ class SeeLevelService:
 
 def main():
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.INFO,
         format='%(asctime)s - %(message)s'
     )
     
