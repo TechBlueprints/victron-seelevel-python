@@ -132,13 +132,13 @@ The router service provides centralized BLE management for all Victron BLE servi
 
 ### File Locations
 
-- **Installation Directory**: `/data/apps/dbus-seelevel/`
-- **Scripts**: `/data/apps/dbus-seelevel/data/dbus-seelevel-*.py`
-- **Service Directory**: `/data/apps/dbus-seelevel/service/`
+- **Installation Directory**: `/data/apps/victron-seelevel-python/`
+- **Scripts**: `/data/apps/victron-seelevel-python/data/dbus-seelevel-*.py`
+- **Service Directory**: `/data/apps/victron-seelevel-python/service/`
 - **Service Symlink**: `/service/dbus-seelevel/` (created via `/data/rc.local` on boot)
 - **Persistence**: `/data/rc.local` (ensures symlink is recreated after reboot)
 - **Logs**: `/var/log/dbus-seelevel/`
-- **Settings**: Stored in `/data/apps/dbus-seelevel/data/sensors.json` and on D-Bus switch object paths
+- **Settings**: Stored in `/data/apps/victron-seelevel-python/data/sensors.json` and on D-Bus switch object paths
 
 ## Configuration
 
@@ -209,7 +209,7 @@ Once discovered, sensors persist across reboots and can be individually enabled/
 
 Sensor configurations and metadata are stored in:
 - **Device settings**: `com.victronenergy.settings` at `/Settings/Devices/seelevel/` for device registration (ClassAndVrmInstance, CustomName)
-- **Sensor metadata**: JSON file at `/data/apps/dbus-seelevel/sensors.json` for dynamically discovered sensor information (MAC, TypeID, Num, Name, Type, RelayID, Enabled)
+- **Sensor metadata**: JSON file at `/data/apps/victron-seelevel-python/sensors.json` for dynamically discovered sensor information (MAC, TypeID, Num, Name, Type, RelayID, Enabled)
 
 The JSON file is automatically managed by the service and persists across reboots. No manual editing required.
 
@@ -289,7 +289,7 @@ If your SeeLevel tanks are not showing up in the Venus OS UI, use the diagnostic
 
 ```bash
 # Run the diagnostic script
-bash /data/apps/dbus-seelevel/diagnose.sh
+bash /data/apps/victron-seelevel-python/diagnose.sh
 ```
 
 This script automatically checks:
@@ -437,15 +437,15 @@ Run with: `bash check-seelevel.sh`
 
 1. Check the run script is executable: `ls -la /service/dbus-seelevel/run`
 2. Check for Python errors: `tail -f /var/log/dbus-seelevel/current`
-3. Verify scripts exist: `ls -la /data/apps/dbus-seelevel/data/dbus-seelevel-*.py`
-4. Test manually: `python3 /data/apps/dbus-seelevel/data/dbus-seelevel-service.py`
+3. Verify scripts exist: `ls -la /data/apps/victron-seelevel-python/data/dbus-seelevel-*.py`
+4. Test manually: `python3 /data/apps/victron-seelevel-python/data/dbus-seelevel-service.py`
 
 ### Resetting Sensor Configuration
 
 To reset all discovered sensors and start fresh:
 
 ```bash
-rm /data/apps/dbus-seelevel/sensors.json
+rm /data/apps/victron-seelevel-python/sensors.json
 svc -t /service/dbus-seelevel
 ```
 
@@ -463,7 +463,7 @@ svc -d /service/dbus-seelevel
 rm -rf /service/dbus-seelevel
 
 # Remove the scripts (optional)
-rm -f /data/apps/dbus-seelevel/data/dbus-seelevel-*.py
+rm -f /data/apps/victron-seelevel-python/data/dbus-seelevel-*.py
 
 # Remove the logs (optional)
 rm -rf /var/log/dbus-seelevel
