@@ -208,7 +208,7 @@ Once discovered, sensors persist across reboots and can be individually enabled/
 ### Persistent Storage
 
 Sensor configurations and metadata are stored in:
-- **Device settings**: `com.victronenergy.settings` at `/Settings/Devices/seelevel_monitor/` for device registration (ClassAndVrmInstance, CustomName)
+- **Device settings**: `com.victronenergy.settings` at `/Settings/Devices/seelevel/` for device registration (ClassAndVrmInstance, CustomName)
 - **Sensor metadata**: JSON file at `/data/apps/dbus-seelevel/sensors.json` for dynamically discovered sensor information (MAC, TypeID, Num, Name, Type, RelayID, Enabled)
 
 The JSON file is automatically managed by the service and persists across reboots. No manual editing required.
@@ -331,19 +331,19 @@ svc -u /service/dbus-seelevel
 
 ```bash
 # Check BLE Router discovery (should return 1):
-dbus -y com.victronenergy.switch.ble.advertisements /SwitchableOutput/relay_1/State GetValue
+dbus -y com.victronenergy.switch.ble_advertisements /SwitchableOutput/relay_discovery/State GetValue
 
 # Check SeeLevel Tank discovery (should return 1):
-dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_0/State GetValue
+dbus -y com.victronenergy.switch.seelevel /SwitchableOutput/relay_discovery/State GetValue
 ```
 
 If either returns `0`, enable them:
 ```bash
 # Enable BLE Router discovery:
-dbus -y com.victronenergy.switch.ble.advertisements /SwitchableOutput/relay_1/State SetValue %1
+dbus -y com.victronenergy.switch.ble_advertisements /SwitchableOutput/relay_discovery/State SetValue %1
 
 # Enable SeeLevel Tank discovery:
-dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_0/State SetValue %1
+dbus -y com.victronenergy.switch.seelevel /SwitchableOutput/relay_discovery/State SetValue %1
 ```
 
 **Via GUI:**
@@ -396,7 +396,7 @@ Even if discoveries are enabled, individual device toggles might be disabled:
 ```bash
 # Check discovered devices
 dbus-send --system --print-reply \
-  --dest=com.victronenergy.switch.ble.advertisements \
+  --dest=com.victronenergy.switch.ble_advertisements \
   /ble_advertisements \
   org.freedesktop.DBus.Introspectable.Introspect | grep "relay_"
 ```
@@ -415,9 +415,9 @@ svstat /service/dbus-seelevel
 echo ""
 echo "2. Discovery Switches (both should be 1):"
 echo -n "   BLE Router: "
-dbus -y com.victronenergy.switch.ble.advertisements /SwitchableOutput/relay_1/State GetValue 2>/dev/null || echo "ERROR"
+dbus -y com.victronenergy.switch.ble_advertisements /SwitchableOutput/relay_discovery/State GetValue 2>/dev/null || echo "ERROR"
 echo -n "   SeeLevel:   "
-dbus -y com.victronenergy.switch.seelevel_monitor /SwitchableOutput/relay_0/State GetValue 2>/dev/null || echo "ERROR"
+dbus -y com.victronenergy.switch.seelevel /SwitchableOutput/relay_discovery/State GetValue 2>/dev/null || echo "ERROR"
 echo ""
 echo "3. Recent SeeLevel logs:"
 tail -n 20 /var/log/dbus-seelevel/current 2>/dev/null | grep -E "(Advertisement|Discovered|ERROR)" || echo "   No relevant logs found"
