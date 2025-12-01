@@ -63,42 +63,53 @@ if [ -d "$INSTALL_DIR" ]; then
     echo "Directory exists: $INSTALL_DIR"
     cd "$INSTALL_DIR"
     
-    # Check if it's already a git repository
+    # Add to safe directories (ownership consideration)
+    git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
+    
+    # Check if it's already a git repository with correct remote
     if [ -d .git ]; then
-        echo "Already a git repository. Checking for updates..."
+        CURRENT_REMOTE=$(git remote get-url origin 2>/dev/null || echo "")
+        if [ "$CURRENT_REMOTE" != "$REPO_URL" ]; then
+            echo "Updating remote URL to $REPO_URL..."
+            git remote set-url origin "$REPO_URL" 2>/dev/null || git remote add origin "$REPO_URL"
+        fi
         
-        # Fetch latest changes
+        echo "Fetching latest changes..."
         git fetch origin
         
-        # Check if there are differences
-        LOCAL=$(git rev-parse HEAD)
-        REMOTE=$(git rev-parse origin/main)
+        # Check current commit vs remote
+        LOCAL=$(git rev-parse HEAD 2>/dev/null || echo "none")
+        REMOTE=$(git rev-parse origin/main 2>/dev/null || echo "none")
         
         if [ "$LOCAL" != "$REMOTE" ]; then
-            echo "Updates available. Pulling latest changes..."
-            git pull
+            echo "Updates available. Resetting to latest..."
+            # Discard any local changes and reset to origin/main
+            git checkout main 2>/dev/null || git checkout -b main origin/main
+            git reset --hard origin/main
             NEEDS_RESTART=true
-            echo "✓ Repository updated"
+            echo "✓ Repository updated to latest"
         else
             echo "✓ Already up to date"
         fi
     else
-        echo "Not a git repository. Converting to git repository..."
+        echo "Not a git repository. Converting..."
+        
+        # Back up any existing files
+        if [ -f "data/dbus-seelevel-service.py" ]; then
+            echo "Backing up existing installation..."
+            mkdir -p /tmp/seelevel-backup
+            cp -r data /tmp/seelevel-backup/ 2>/dev/null || true
+        fi
         
         # Initialize as git repo
         git init
-        
-        # Add to safe directories (ownership consideration)
-        git config --global --add safe.directory "$INSTALL_DIR"
-        
-        # Add remote
         git remote add origin "$REPO_URL"
         
         # Fetch and reset to main
         git fetch origin
-        git checkout -b main
+        git checkout -b main origin/main 2>/dev/null || git checkout main
         git reset --hard origin/main
-        git branch --set-upstream-to=origin/main main
+        git branch --set-upstream-to=origin/main main 2>/dev/null || true
         
         NEEDS_RESTART=true
         echo "✓ Converted to git repository and updated to latest"
@@ -109,7 +120,7 @@ else
     cd "$INSTALL_DIR"
     
     # Add to safe directories
-    git config --global --add safe.directory "$INSTALL_DIR"
+    git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
     
     NEEDS_RESTART=false  # New install, not a restart
     echo "✓ Repository cloned"
