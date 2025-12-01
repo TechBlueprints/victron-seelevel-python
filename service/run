@@ -8,5 +8,5 @@ exec 2>&1
 # but the service will continue to operate normally.
 
 echo "Starting seelevel service..."
-cd /data/apps/dbus-seelevel/data
-exec softlimit -d 100000000 -s 1000000 -a 100000000 python3 -u /data/apps/dbus-seelevel/data/dbus-seelevel-service.py
+cd /data/apps/victron-seelevel-python/data
+exec softlimit -d 100000000 -s 1000000 -a 100000000 python3 -u /data/apps/victron-seelevel-python/data/dbus-seelevel-service.py

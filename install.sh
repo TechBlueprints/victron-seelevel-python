@@ -9,7 +9,8 @@
 set -e
 
 REPO_URL="https://github.com/TechBlueprints/victron-seelevel-python.git"
-INSTALL_DIR="/data/apps/dbus-seelevel"
+INSTALL_DIR="/data/apps/victron-seelevel-python"
+OLD_INSTALL_DIR="/data/apps/dbus-seelevel"
 SERVICE_NAME="dbus-seelevel"
 BLE_ROUTER_INSTALLER="https://raw.githubusercontent.com/TechBlueprints/dbus-ble-advertisements/main/install.sh"
 
@@ -58,6 +59,23 @@ echo "Step 2: Setting up repository..."
 cd /data/apps
 
 NEEDS_RESTART=false
+
+# Migrate from old install location if it exists
+if [ -d "$OLD_INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR" ]; then
+    echo "Migrating from old install location..."
+    # Stop old service if running
+    svc -d /service/$SERVICE_NAME 2>/dev/null || true
+    rm -f /service/$SERVICE_NAME 2>/dev/null || true
+    # Move to new location
+    mv "$OLD_INSTALL_DIR" "$INSTALL_DIR"
+    echo "✓ Migrated to $INSTALL_DIR"
+    NEEDS_RESTART=true
+elif [ -d "$OLD_INSTALL_DIR" ] && [ -d "$INSTALL_DIR" ]; then
+    echo "Removing old install location (new location exists)..."
+    svc -d /service/$SERVICE_NAME 2>/dev/null || true
+    rm -rf "$OLD_INSTALL_DIR"
+    echo "✓ Removed old install at $OLD_INSTALL_DIR"
+fi
 
 if [ -d "$INSTALL_DIR" ]; then
     echo "Directory exists: $INSTALL_DIR"

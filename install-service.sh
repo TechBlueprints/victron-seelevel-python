@@ -2,14 +2,15 @@
 #
 # Installation script for victron-seelevel-python on Venus OS (Cerbo GX)
 #
-# This script installs the service to /data/apps/dbus-seelevel
-# and sets it up to run automatically via daemontools (supervise/svc)
+# This script sets up the service to run automatically via daemontools (supervise/svc)
+# It assumes the repository has already been cloned to /data/apps/victron-seelevel-python
 #
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTALL_DIR="/data/apps/dbus-seelevel"
+INSTALL_DIR="/data/apps/victron-seelevel-python"
+OLD_INSTALL_DIR="/data/apps/dbus-seelevel"
+SERVICE_NAME="dbus-seelevel"
 
 echo "========================================"
 echo "Installing victron-seelevel-python"
@@ -19,6 +20,13 @@ echo ""
 # Check if running on Venus OS
 if [ ! -d "/data/apps" ]; then
     echo "Error: /data/apps not found. This script must run on Venus OS."
+    exit 1
+fi
+
+# Check that we're running from the correct location
+if [ ! -f "$INSTALL_DIR/data/dbus-seelevel-service.py" ]; then
+    echo "Error: Script must be run from $INSTALL_DIR"
+    echo "Expected to find: $INSTALL_DIR/data/dbus-seelevel-service.py"
     exit 1
 fi
 
@@ -32,73 +40,45 @@ if ! dbus-send --system --print-reply --dest=org.freedesktop.DBus /org/freedeskt
     echo ""
     echo "This service requires the dbus-ble-advertisements router."
     echo ""
-    
-    # Check if we can auto-install
-    if command -v curl >/dev/null 2>&1; then
-        echo "Would you like to install it now? (y/n)"
-        read -r response
-        if [ "$response" = "y" ] || [ "$response" = "Y" ]; then
-            echo ""
-            echo "Installing dbus-ble-advertisements..."
-            curl -fsSL https://raw.githubusercontent.com/TechBlueprints/dbus-ble-advertisements/main/install.sh | bash
-            if [ $? -eq 0 ]; then
-                echo ""
-                echo "✓ dbus-ble-advertisements installed successfully"
-                echo ""
-            else
-                echo ""
-                echo "ERROR: Failed to install dbus-ble-advertisements"
-                echo "Please install manually from: https://github.com/TechBlueprints/dbus-ble-advertisements"
-                exit 1
-            fi
-        else
-            echo ""
-            echo "Installation cancelled. You must install dbus-ble-advertisements first:"
-            echo "  curl -fsSL https://raw.githubusercontent.com/TechBlueprints/dbus-ble-advertisements/main/install.sh | bash"
-            echo ""
-            echo "Or use the legacy-standalone-btmon branch:"
-            echo "  https://github.com/TechBlueprints/victron-seelevel-python/tree/legacy-standalone-btmon"
-            exit 1
-        fi
-    else
-        echo "Manual installation required:"
-        echo "  curl -fsSL https://raw.githubusercontent.com/TechBlueprints/dbus-ble-advertisements/main/install.sh | bash"
-        echo ""
-        echo "Or use the legacy-standalone-btmon branch:"
-        echo "  https://github.com/TechBlueprints/victron-seelevel-python/tree/legacy-standalone-btmon"
-        exit 1
-    fi
+    echo "Install it first:"
+    echo "  curl -fsSL https://raw.githubusercontent.com/TechBlueprints/dbus-ble-advertisements/main/install.sh | bash"
+    exit 1
 fi
 
 echo "✓ dbus-ble-advertisements service found"
 echo ""
 
-# Create installation directory
-echo "Creating installation directory..."
-mkdir -p "$INSTALL_DIR/data"
-
-# Copy files
-echo "Copying files..."
-cp -r "$SCRIPT_DIR/data/"* "$INSTALL_DIR/data/"
-cp -r "$SCRIPT_DIR/service" "$INSTALL_DIR/"
-cp "$SCRIPT_DIR/diagnose.sh" "$INSTALL_DIR/"
+# Clean up old install location if it exists
+if [ -d "$OLD_INSTALL_DIR" ] && [ "$OLD_INSTALL_DIR" != "$INSTALL_DIR" ]; then
+    echo "Cleaning up old install location: $OLD_INSTALL_DIR"
+    rm -rf "$OLD_INSTALL_DIR"
+    echo "✓ Removed old install"
+fi
 
 # Make scripts executable
+echo "Setting permissions..."
 chmod +x "$INSTALL_DIR/data/dbus-seelevel-service.py"
 chmod +x "$INSTALL_DIR/data/dbus-seelevel-sensor.py"
 chmod +x "$INSTALL_DIR/service/run"
 chmod +x "$INSTALL_DIR/service/log/run"
 chmod +x "$INSTALL_DIR/diagnose.sh"
+echo "✓ Permissions set"
 
 # Add to rc.local to persist across reboots
 RC_LOCAL="/data/rc.local"
-RC_ENTRY="ln -sf $INSTALL_DIR/service /service/dbus-seelevel"
-SERVICE_LINK="/service/dbus-seelevel"
+RC_ENTRY="ln -sf $INSTALL_DIR/service /service/$SERVICE_NAME"
+OLD_RC_ENTRY="ln -sf $OLD_INSTALL_DIR/service /service/$SERVICE_NAME"
 
 if [ ! -f "$RC_LOCAL" ]; then
     echo "Creating /data/rc.local..."
     echo "#!/bin/bash" > "$RC_LOCAL"
     chmod 755 "$RC_LOCAL"
+fi
+
+# Remove old rc.local entry if present
+if grep -qF "$OLD_RC_ENTRY" "$RC_LOCAL" 2>/dev/null; then
+    echo "Removing old rc.local entry..."
+    grep -vF "$OLD_RC_ENTRY" "$RC_LOCAL" > "$RC_LOCAL.tmp" && mv "$RC_LOCAL.tmp" "$RC_LOCAL"
 fi
 
 if ! grep -qF "$RC_ENTRY" "$RC_LOCAL"; then
@@ -111,13 +91,13 @@ fi
 
 # Link to daemontools service directory
 echo "Registering service with daemontools..."
-if [ -L "/service/dbus-seelevel" ]; then
-    echo "Service link already exists, removing..."
-    svc -d /service/dbus-seelevel
-    rm /service/dbus-seelevel
+if [ -L "/service/$SERVICE_NAME" ]; then
+    echo "Service link already exists, updating..."
+    svc -d /service/$SERVICE_NAME 2>/dev/null || true
+    rm -f /service/$SERVICE_NAME
 fi
 
-ln -sf "$INSTALL_DIR/service" /service/dbus-seelevel
+ln -sf "$INSTALL_DIR/service" /service/$SERVICE_NAME
 
 # Wait for service to start and register on D-Bus
 echo "Waiting for service to start..."
@@ -147,12 +127,11 @@ echo "Run diagnostic to verify setup:"
 echo "  bash $INSTALL_DIR/diagnose.sh"
 echo ""
 echo "Service management commands:"
-echo "  svc -u /service/dbus-seelevel  # Start service"
-echo "  svc -d /service/dbus-seelevel  # Stop service"
-echo "  svc -t /service/dbus-seelevel  # Restart service"
-echo "  svstat /service/dbus-seelevel  # Check status"
+echo "  svc -u /service/$SERVICE_NAME  # Start service"
+echo "  svc -d /service/$SERVICE_NAME  # Stop service"
+echo "  svc -t /service/$SERVICE_NAME  # Restart service"
+echo "  svstat /service/$SERVICE_NAME  # Check status"
 echo ""
 echo "View logs:"
-echo "  tail -f /var/log/dbus-seelevel/current"
+echo "  tail -f /var/log/$SERVICE_NAME/current"
 echo ""
-
