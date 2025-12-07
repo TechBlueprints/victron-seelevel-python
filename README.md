@@ -229,6 +229,25 @@ The service will:
 - ✅ Run continuously in the background
 - ✅ Rotate logs automatically (4 files, 25KB each)
 
+## Disable / Uninstall
+
+To completely disable the service and clean up all settings:
+
+```bash
+bash /data/apps/victron-seelevel-python/disable.sh
+```
+
+This will:
+- Stop the service
+- Remove the service from startup (rc.local)
+- Clean up all D-Bus settings (including old seelevel_monitor paths)
+
+To fully remove, also delete the install directory:
+```bash
+rm -rf /data/apps/victron-seelevel-python
+rm -rf /data/apps/dbus-seelevel  # if old install exists
+```
+
 ## Troubleshooting
 
 ### Switches Not Visible
