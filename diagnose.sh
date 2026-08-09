@@ -45,7 +45,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 
 # Check BLE Router
 BLE_STATUS=$(svstat /service/dbus-ble-advertisements 2>&1)
-if echo "$BLE_STATUS" | grep -q "up"; then
+if echo "$BLE_STATUS" | grep -q ": up "; then
     BLE_PID=$(echo "$BLE_STATUS" | sed -n 's/.*pid \([0-9]*\).*/\1/p')
     BLE_UPTIME=$(echo "$BLE_STATUS" | sed -n 's/.*) \([0-9]*\) seconds.*/\1/p')
     print_pass "BLE Router running (PID: $BLE_PID, uptime: ${BLE_UPTIME}s)"
@@ -56,7 +56,7 @@ fi
 
 # Check SeeLevel Service
 SEELEVEL_STATUS=$(svstat /service/dbus-seelevel 2>&1)
-if echo "$SEELEVEL_STATUS" | grep -q "up"; then
+if echo "$SEELEVEL_STATUS" | grep -q ": up "; then
     SEELEVEL_PID=$(echo "$SEELEVEL_STATUS" | sed -n 's/.*pid \([0-9]*\).*/\1/p')
     SEELEVEL_UPTIME=$(echo "$SEELEVEL_STATUS" | sed -n 's/.*) \([0-9]*\) seconds.*/\1/p')
     print_pass "SeeLevel service running (PID: $SEELEVEL_PID, uptime: ${SEELEVEL_UPTIME}s)"

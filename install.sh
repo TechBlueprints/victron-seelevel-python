@@ -149,7 +149,7 @@ echo ""
 echo "Step 3: Installing/updating service..."
 
 # Check if service is already running
-if [ -L "/service/$SERVICE_NAME" ] && svstat "/service/$SERVICE_NAME" 2>/dev/null | grep -q "up"; then
+if [ -L "/service/$SERVICE_NAME" ] && svstat "/service/$SERVICE_NAME" 2>/dev/null | grep -q ": up "; then
     if [ "$NEEDS_RESTART" = true ]; then
         echo "Service is already installed and running."
         echo "Updates detected. Restarting service..."
@@ -157,7 +157,7 @@ if [ -L "/service/$SERVICE_NAME" ] && svstat "/service/$SERVICE_NAME" 2>/dev/nul
         sleep 2
         
         # Verify it restarted
-        if svstat "/service/$SERVICE_NAME" 2>/dev/null | grep -q "up"; then
+        if svstat "/service/$SERVICE_NAME" 2>/dev/null | grep -q ": up "; then
             echo "✓ Service restarted successfully"
         else
             echo "Warning: Service may not have restarted properly. Check logs:"
